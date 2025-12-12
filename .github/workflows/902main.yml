@@ -4,18 +4,13 @@ on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'ImmortalWrt版本分支'
-        required: true
-        default: 'openwrt-21.02'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       
     - name: Setup build environment
       run: |
@@ -37,7 +32,7 @@ jobs:
         make -j$(nproc)
       
     - name: Upload firmware artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-tl-wr902ac-v1
         path: bin/targets/ath79/generic/
