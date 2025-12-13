@@ -11,12 +11,6 @@ on:
         required: false
         default: false
 
-env:
-  FIRMWARE_NAME: immortalwrt-18.06-tl-wr902ac-v1
-  DEVICE_NAME: tplink_tl-wr902ac-v1
-  TARGET: ar71xx
-  SUBTARGET: tiny
-
 jobs:
   build:
     runs-on: ubuntu-20.04
@@ -46,7 +40,7 @@ jobs:
     - name: Configure for TL-WR902AC v1 (16MB)
       working-directory: ./openwrt
       run: |
-        # 设置目标平台
+        # 设置目标平台为ar71xx（18.06版本使用）
         echo "CONFIG_TARGET_ar71xx=y" > .config
         echo "CONFIG_TARGET_ar71xx_tiny=y" >> .config
         echo "CONFIG_TARGET_ar71xx_tiny_DEVICE_tplink_tl-wr902ac-v1=y" >> .config
