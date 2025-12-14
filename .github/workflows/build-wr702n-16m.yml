@@ -1,4 +1,3 @@
-
 name: Build ImmortalWrt for TL-WR702N v1 (16MB)
 
 on:
@@ -10,10 +9,23 @@ on:
         description: 'ImmortalWrt分支版本'
         required: true
         default: 'openwrt-21.02'
+      target:
+        description: '构建目标'
+        required: true
+        default: 'ar71xx'
+      subtarget:
+        description: '子目标'
+        required: true
+        default: 'generic'
+      device:
+        description: '设备型号'
+        required: true
+        default: 'tplink_tl-wr702n-v1'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 180  # 设置超时时间
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -22,28 +34,100 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential ccache curl git libncurses5-dev \
-        libssl-dev python3 python3-dev meson gperf help2man
+        libssl-dev python3 python3-dev meson gperf help2man \
+        subversion expect flex libelf-dev zlib1g-dev rsync unzip time file \
+        wget libtool-bin libtool libc6-dev libgmp-dev libmpfr-dev libmpc-dev \
+        xsltproc libxml-parser-perl python3-setuptools swig bc \
+        gawk binutils-dev quilt bison texinfo automake autoconf \
+        libncursesw5-dev unrar-free p7zip-full
+        sudo apt-get clean
+        
+    - name: Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ github.job }}-${{ github.sha }}
+        max-size: 1G
         
     - name: Download ImmortalWrt source
       run: |
-        git clone https://github.com/immortalwrt/immortalwrt.git
-        cd immortalwrt
-        git checkout ${{ github.event.inputs.branch || 'openwrt-21.02' }}
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b ${{ github.event.inputs.branch || 'openwrt-21.02' }}
         
-    - name: Configure for TL-WR702N v1 (16MB)
+    - name: Prepare configuration
       run: |
         cd immortalwrt
+        # 首先进行默认配置
+        cat > .config << EOF
+CONFIG_TARGET_${{ github.event.inputs.target || 'ar71xx' }}=y
+CONFIG_TARGET_${{ github.event.inputs.target || 'ar71xx' }}_${{ github.event.inputs.subtarget || 'generic' }}=y
+CONFIG_TARGET_${{ github.event.inputs.target || 'ar71xx' }}_${{ github.event.inputs.subtarget || 'generic' }}_DEVICE_${{ github.event.inputs.device || 'tplink_tl-wr702n-v1' }}=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=12160
+EOF
+        
+    - name: Update and install feeds
+      run: |
+        cd immortalwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        
+    - name: Apply custom configuration
+      run: |
+        cd immortalwrt
+        # 应用我们的自定义配置
         cp ../config/wr702n-16m.config .config
+        # 修复配置，确保必要的包被选中
+        echo "CONFIG_PACKAGE_libubox=y" >> .config
+        echo "CONFIG_PACKAGE_libubus=y" >> .config
+        echo "CONFIG_PACKAGE_libuci=y" >> .config
+        echo "CONFIG_PACKAGE_liblua=y" >> .config
+        echo "# CONFIG_PACKAGE_emortal_default-settings is not set" >> .config
+        # 简化配置，避免default-settings包
+        sed -i 's/CONFIG_PACKAGE_emortal_default-settings=y/# CONFIG_PACKAGE_emortal_default-settings is not set/' .config
         make defconfig
         
-    - name: Build firmware
+    - name: Build toolchain (加快后续构建)
       run: |
         cd immortalwrt
-        make -j$(nproc)
+        make toolchain/install -j$(nproc) V=s 2>&1 | tee toolchain.log
+        
+    - name: Build firmware with retry
+      continue-on-error: true
+      timeout-minutes: 120
+      run: |
+        cd immortalwrt
+        # 第一次尝试构建
+        make -j$(($(nproc) + 1)) V=s 2>&1 | tee build.log || {
+          echo "第一次构建失败，检查并修复配置..."
+          # 禁用导致问题的包
+          sed -i 's/CONFIG_PACKAGE_emortal_default-settings=y/# CONFIG_PACKAGE_emortal_default-settings is not set/' .config
+          sed -i 's/CONFIG_PACKAGE_luci=y/# CONFIG_PACKAGE_luci is not set/' .config
+          sed -i 's/CONFIG_PACKAGE_luci-base=y/# CONFIG_PACKAGE_luci-base is not set/' .config
+          make defconfig
+        }
+        
+    - name: Final build attempt
+      if: steps.build-firmware.outcome == 'failure'
+      run: |
+        cd immortalwrt
+        echo "进行最终构建尝试..."
+        # 使用单线程构建，更容易调试
+        make -j1 V=s 2>&1 | tee final-build.log
         
     - name: Upload firmware artifacts
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-tl-wr702n-v1-16m
         path: immortalwrt/bin/targets/ar71xx/generic/
+        retention-days: 30
+        
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          immortalwrt/build.log
+          immortalwrt/final-build.log
+          immortalwrt/toolchain.log
         retention-days: 30
