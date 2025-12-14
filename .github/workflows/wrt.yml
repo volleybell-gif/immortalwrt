@@ -1,75 +1,76 @@
-name: Build ImmortalWrt for TP-WR703N (16MB)
+name: "Build ImmortalWrt for TP-WR703N (16MB)"
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: '固件版本'
+        description: "固件版本"
         required: false
-        default: 'v1.0'
+        default: "v1.0"
   push:
-    branches: [ main ]
+    branches: 
+      - main
   schedule:
-    - cron: '0 2 * * 0'
+    - cron: "0 2 * * 0"
 
 env:
-  TARGET: ath79
-  SUBTARGET: tiny
-  PROFILE: tplink_tl-wr703n-v1
+  TARGET: "ath79"
+  SUBTARGET: "tiny"
+  PROFILE: "tplink_tl-wr703n-v1"
   JOBS: ${{ github.runner.hardware_concurrency || 4 }}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: "ubuntu-latest"
     timeout-minutes: 120
     
     steps:
-    - name: Checkout ImmortalWrt source
-      uses: actions/checkout@v4
-      with:
-        repository: immortalwrt/immortalwrt
-        ref: openwrt-21.02
-        submodules: recursive
-        path: openwrt
+      - name: "Checkout ImmortalWrt source"
+        uses: "actions/checkout@v4"
+        with:
+          repository: "immortalwrt/immortalwrt"
+          ref: "openwrt-21.02"
+          submodules: "recursive"
+          path: "openwrt"
     
-    - name: Setup build environment
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          clang \
-          gcc \
-          g++ \
-          libncurses-dev \
-          libssl-dev \
-          python3 \
-          python3-distutils \
-          python3-setuptools \
-          rsync \
-          wget \
-          curl \
-          git \
-          subversion \
-          unzip \
-          bc \
-          findutils \
-          p7zip-full \
-          gettext \
-          gawk \
-          zlib1g-dev \
-          libelf-dev
+      - name: "Setup build environment"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            gcc \
+            g++ \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            python3-distutils \
+            python3-setuptools \
+            rsync \
+            wget \
+            curl \
+            git \
+            subversion \
+            unzip \
+            bc \
+            findutils \
+            p7zip-full \
+            gettext \
+            gawk \
+            zlib1g-dev \
+            libelf-dev
     
-    - name: Update and install feeds
-      run: |
-        cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      - name: "Update and install feeds"
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
     
-    - name: Configure for TP-WR703N 16MB
-      run: |
-        cd openwrt
-        
-        cat > .config << 'EOF'
+      - name: "Configure for TP-WR703N 16MB"
+        run: |
+          cd openwrt
+          
+          cat > .config << 'EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_tiny=y
 CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1=y
@@ -86,67 +87,67 @@ CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
 CONFIG_PACKAGE_opkg=y
 CONFIG_PACKAGE_block-mount=y
 EOF
-        
-        make defconfig
+          
+          make defconfig
     
-    - name: Download package dependencies
-      run: |
-        cd openwrt
-        make -j${{ env.JOBS }} download || make -j1 download
-        make -j${{ env.JOBS }} tools/compile
-        make -j${{ env.JOBS }} toolchain/compile
+      - name: "Download package dependencies"
+        run: |
+          cd openwrt
+          make -j${{ env.JOBS }} download || make -j1 download
+          make -j${{ env.JOBS }} tools/compile
+          make -j${{ env.JOBS }} toolchain/compile
     
-    - name: Build firmware with multiple threads
-      run: |
-        cd openwrt
-        echo "使用 ${{ env.JOBS }} 个线程进行编译..."
-        make -j${{ env.JOBS }} || make -j1 V=s
+      - name: "Build firmware with multiple threads"
+        run: |
+          cd openwrt
+          echo "使用 ${{ env.JOBS }} 个线程进行编译..."
+          make -j${{ env.JOBS }} || make -j1 V=s
     
-    - name: Find and rename firmware
-      run: |
-        cd openwrt
-        FIRMWARE_DIR="bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}"
-        FIRMWARE_FILE=$(find "$FIRMWARE_DIR" -name "*squashfs*sysupgrade*.bin" -type f | head -1)
-        
-        if [ -f "$FIRMWARE_FILE" ]; then
-          DATE=$(date +"%Y%m%d")
-          NEW_NAME="immortalwrt-21.02-${{ env.TARGET }}-${{ env.SUBTARGET }}-${{ env.PROFILE }}-16mb-squashfs-sysupgrade-$DATE.bin"
-          cp "$FIRMWARE_FILE" "$FIRMWARE_DIR/$NEW_NAME"
-          echo "原始文件: $(basename "$FIRMWARE_FILE")"
-          echo "新文件名: $NEW_NAME"
-          echo "文件大小: $(du -h "$FIRMWARE_DIR/$NEW_NAME" | cut -f1)"
-        else
-          echo "错误：未找到固件文件"
-          ls -la "$FIRMWARE_DIR/"
-          exit 1
-        fi
+      - name: "Find and rename firmware"
+        run: |
+          cd openwrt
+          FIRMWARE_DIR="bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}"
+          FIRMWARE_FILE=$(find "$FIRMWARE_DIR" -name "*squashfs*sysupgrade*.bin" -type f | head -1)
+          
+          if [ -f "$FIRMWARE_FILE" ]; then
+            DATE=$(date +"%Y%m%d")
+            NEW_NAME="immortalwrt-21.02-${{ env.TARGET }}-${{ env.SUBTARGET }}-${{ env.PROFILE }}-16mb-squashfs-sysupgrade-$DATE.bin"
+            cp "$FIRMWARE_FILE" "$FIRMWARE_DIR/$NEW_NAME"
+            echo "原始文件: $(basename "$FIRMWARE_FILE")"
+            echo "新文件名: $NEW_NAME"
+            echo "文件大小: $(du -h "$FIRMWARE_DIR/$NEW_NAME" | cut -f1)"
+          else
+            echo "错误：未找到固件文件"
+            ls -la "$FIRMWARE_DIR/"
+            exit 1
+          fi
     
-    - name: Upload firmware artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: tp-wr703n-16mb-firmware
-        path: |
-          openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*squashfs*sysupgrade*.bin
-          openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*.manifest
-        retention-days: 30
-        if-no-files-found: error
+      - name: "Upload firmware artifact"
+        uses: "actions/upload-artifact@v4"
+        with:
+          name: "tp-wr703n-16mb-firmware"
+          path: |
+            openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*squashfs*sysupgrade*.bin
+            openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*.manifest
+          retention-days: 30
+          if-no-files-found: "error"
     
-    - name: Create release summary
-      if: always()
-      run: |
-        echo "## 编译摘要" >> $GITHUB_STEP_SUMMARY
-        echo "- **设备**: TP-WR703N" >> $GITHUB_STEP_SUMMARY
-        echo "- **固件类型**: 16MB squashfs sysupgrade" >> $GITHUB_STEP_SUMMARY
-        echo "- **源码分支**: openwrt-21.02" >> $GITHUB_STEP_SUMMARY
-        echo "- **编译时间**: $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "- **使用线程**: ${{ env.JOBS }}" >> $GITHUB_STEP_SUMMARY
-        
-        if [ -d "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}" ]; then
-          echo "### 生成的文件：" >> $GITHUB_STEP_SUMMARY
-          for file in openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*.bin; do
-            if [ -f "$file" ]; then
-              SIZE=$(du -h "$file" | cut -f1)
-              echo "- $(basename "$file") ($SIZE)" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
-        fi
+      - name: "Create release summary"
+        if: always()
+        run: |
+          echo "## 编译摘要" >> $GITHUB_STEP_SUMMARY
+          echo "- **设备**: TP-WR703N" >> $GITHUB_STEP_SUMMARY
+          echo "- **固件类型**: 16MB squashfs sysupgrade" >> $GITHUB_STEP_SUMMARY
+          echo "- **源码分支**: openwrt-21.02" >> $GITHUB_STEP_SUMMARY
+          echo "- **编译时间**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- **使用线程**: ${{ env.JOBS }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -d "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}" ]; then
+            echo "### 生成的文件：" >> $GITHUB_STEP_SUMMARY
+            for file in openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*.bin; do
+              if [ -f "$file" ]; then
+                SIZE=$(du -h "$file" | cut -f1)
+                echo "- $(basename "$file") ($SIZE)" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+          fi
