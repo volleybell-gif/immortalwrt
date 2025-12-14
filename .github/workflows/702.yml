@@ -1,57 +1,50 @@
 
-name: Build ImmortalWrt 21.02 for TL-WR703N
+name: Build ImmortalWrt for TL-WR702N v1 (16MB)
+
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
     inputs:
-      clean_build:
-        description: '执行完整清理编译'
-        required: false
-        default: false
+      branch:
+        description: 'ImmortalWrt分支版本'
+        required: true
+        default: 'openwrt-21.02'
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-    - name: Install build dependencies
+      
+    - name: Setup build environment
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential ccache curl git libncurses5-dev \
-        libssl-dev python3 python3-pip python3-dev meson gperf help2man
-    - name: Clone ImmortalWrt 21.02 source
+        libssl-dev python3 python3-dev meson gperf help2man
+        
+    - name: Download ImmortalWrt source
       run: |
-        git clone -b openwrt-21.02 --single-branch --depth=1 --filter=blob:none https://github.com/immortalwrt/immortalwrt.git openwrt
-    - name: Update and install feeds
-      working-directory: ./openwrt
+        git clone https://github.com/immortalwrt/immortalwrt.git
+        cd immortalwrt
+        git checkout ${{ github.event.inputs.branch || 'openwrt-21.02' }}
+        
+    - name: Configure for TL-WR702N v1 (16MB)
       run: |
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-    - name: Configure for TL-WR703N (16MB)
-      working-directory: ./openwrt
-      run: |
-        echo "CONFIG_TARGET_ath79=y" > .config
-        echo "CONFIG_TARGET_ath79_generic=y" >> .config
-        echo "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq-full=n" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
-        echo "CONFIG_PACKAGE_luci=y" >> .config
-        echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
-        echo "CONFIG_PACKAGE_firewall=y" >> .config
-        echo "CONFIG_CCACHE=y" >> .config
-        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
-    - name: Build firmware
-      working-directory: ./openwrt
-      run: |
+        cd immortalwrt
+        cp ../configs/wr702n-16m.config .config
         make defconfig
-        make -j$(nproc) V=s
+        
+    - name: Build firmware
+      run: |
+        cd immortalwrt
+        make -j$(nproc)
+        
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: immortalwrt-21.02-tl-wr703n-v1
-        path: openwrt/bin/targets/ath79/generic/
-        retention-days: 7
+        name: immortalwrt-tl-wr702n-v1-16m
+        path: immortalwrt/bin/targets/ar71xx/generic/
+        retention-days: 30
+
