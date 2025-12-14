@@ -12,7 +12,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     timeout-minutes: 90
     
     steps:
@@ -23,7 +23,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential ccache curl git libncurses5-dev \
-        libssl-dev python3 python3-pip python3-dev meson gperf help2man
+        libssl-dev python3 python3-pip python3-dev python3-distutils meson gperf help2man
         
     - name: Clone ImmortalWrt source
       run: |
@@ -35,15 +35,12 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-    - name: Configure for TL-WR703N (16MB)
+    - name: Configure for TL-WR703N
       working-directory: ./openwrt
       run: |
-        # 设置目标平台为ar71xx
         echo "CONFIG_TARGET_ar71xx=y" > .config
         echo "CONFIG_TARGET_ar71xx_tiny=y" >> .config
         echo "CONFIG_TARGET_ar71xx_tiny_DEVICE_tplink_tl-wr703n-v1=y" >> .config
-        
-        # 文件系统配置 - 确保生成squashfs-sysupgrade
         echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
         echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16" >> .config
         
@@ -53,22 +50,13 @@ jobs:
         echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
         echo "CONFIG_PACKAGE_firewall=y" >> .config
         
-        # 编译优化
-        echo "CONFIG_CCACHE=y" >> .config
-        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
-        echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
-        
-        # 禁用调试信息
-        echo "CONFIG_KERNEL_KALLSYMS=n" >> .config
-        echo "CONFIG_KERNEL_DEBUG_INFO=n" >> .config
-        
     - name: Build firmware
       working-directory: ./openwrt
       run: |
         make defconfig
         make -j$(nproc) V=s
         
-    - name: Upload firmware artifacts
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-tl-wr703n-v1
