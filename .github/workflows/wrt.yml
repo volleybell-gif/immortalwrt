@@ -1,75 +1,112 @@
-name: Build ImmortalWrt for TP-WR703N
+name: Build ImmortalWrt TL-WR703N 16MB
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-
-env:
-  TARGET: ath79
-  SUBTARGET: tiny
-  PROFILE: tplink_tl-wr703n-v1
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout ImmortalWrt
-        uses: actions/checkout@v4
-        with:
-          repository: immortalwrt/immortalwrt
-          ref: openwrt-21.02
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential
-          sudo apt-get install -y libncurses-dev libssl-dev
-          sudo apt-get install -y python3 python3-setuptools
-          sudo apt-get install -y rsync wget curl git subversion unzip bc
-          sudo apt-get install -y findutils p7zip-full gettext gawk
-          sudo apt-get install -y zlib1g-dev libelf-dev
-          # 安装 OpenWrt 编译所需的其他依赖
-          sudo apt-get install -y asciidoc bash bison bzip2 fastjar flex
-          sudo apt-get install -y gawk gcc-multilib genisoimage gettext
-          sudo apt-get install -y liblzma-dev libz-dev make
-          sudo apt-get install -y patch perl python2.7-dev tar uglifyjs
-          sudo apt-get install -y xmlto zlib1g-dev lib32gcc-s1 libc6-dev-i386
-          sudo apt-get install -y subversion jq time intltool
-
-      - name: Update feeds
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Configure for 16MB
-        run: |
-          echo "CONFIG_TARGET_ath79=y" > .config
-          echo "CONFIG_TARGET_ath79_tiny=y" >> .config
-          echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1=y" >> .config
-          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-          echo "CONFIG_TARGET_ROOTFS_JFFS2=n" >> .config
-          echo "CONFIG_TARGET_KERNEL_PARTSIZE=1024" >> .config
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14848" >> .config
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Python 3 environment
+      run: |
+        sudo apt update
+        # 安装 Python 3 和必要依赖
+        sudo apt install -y python3 python3-dev python3-pip python3-venv
+        # 设置 python 指向 python3
+        sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+        # 安装编译依赖
+        sudo apt install -y build-essential git libncurses5-dev libssl-dev
+        sudo apt install -y subversion flex bison libelf-dev zlib1g-dev rsync unzip wget curl
+        sudo apt install -y gawk file time bc quilt libtool libtool-bin automake autoconf
+        
+    - name: Get ImmortalWrt source
+      run: |
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git
+        
+    - name: Configure for TL-WR703N 16MB
+      run: |
+        cd immortalwrt
+        
+        # 设置环境变量使用 Python 3
+        export PYTHON=python3
+        
+        # 创建基础配置
+        cat > .config << 'EOF'
+CONFIG_TARGET_ar71xx=y
+CONFIG_TARGET_ar71xx_generic=y
+CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=14080
+CONFIG_TARGET_IMAGES_GZIP=y
+CONFIG_PACKAGE_base-files=y
+CONFIG_PACKAGE_busybox=y
+CONFIG_BUSYBOX_CUSTOM=y
+EOF
+        
+        # 生成默认配置
+        make defconfig
+        
+    - name: Build firmware
+      run: |
+        cd immortalwrt
+        
+        # 设置环境变量使用 Python 3
+        export PYTHON=python3
+        
+        echo "开始编译，使用 $(nproc) 个线程..."
+        echo "开始时间: $(date)"
+        
+        # 多线程编译
+        make -j$(nproc) V=s 2>&1 | tee build.log || {
+          echo "编译失败，尝试单线程..."
+          make -j1 V=sc 2>&1 | tee build-single.log
+        }
+        
+        echo "完成时间: $(date)"
+        
+    - name: Check and upload firmware
+      run: |
+        cd immortalwrt
+        
+        echo "检查生成的固件..."
+        
+        # 检查是否有固件生成
+        if ls bin/targets/ar71xx/generic/*.bin 1>/dev/null 2>&1; then
+          echo "✅ 找到固件文件:"
+          ls -lh bin/targets/ar71xx/generic/*.bin
           
-          # 添加基本软件包配置
-          echo "CONFIG_PACKAGE_luci=y" >> .config
-          echo "CONFIG_PACKAGE_luci-compat=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-firewall=y" >> .config
-          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
-          
-          make defconfig
-
-      - name: Download packages
-        run: make download -j$(nproc) || make download -j1
-
-      - name: Build firmware
-        run: make -j$(nproc) || make -j1 V=s
-
-      - name: Upload firmware
-        uses: actions/upload-artifact@v4
-        with:
-          name: tp-wr703n-firmware
-          path: bin/targets/ath79/tiny/*squashfs-sysupgrade*.bin
-          retention-days: 30
+          # 特别检查 squashfs-sysupgrade
+          for file in bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin 2>/dev/null; do
+            if [ -f "$file" ]; then
+              echo "✅ 找到 squashfs-sysupgrade 固件: $file"
+              size=$(stat -c%s "$file")
+              echo "📏 大小: $((size / 1024 / 1024))MB ($((size / 1024))KB)"
+            fi
+          done
+        else
+          echo "⚠️ 未找到固件文件"
+          echo "📁 目录内容:"
+          find bin/targets/ar71xx/generic/ -type f 2>/dev/null | head -20
+        fi
+        
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: tl-wr703n-16m-firmware
+        path: |
+          immortalwrt/bin/targets/ar71xx/generic/*.bin
+        retention-days: 7
+        
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          immortalwrt/build.log
+          immortalwrt/build-single.log
+        retention-days: 7
