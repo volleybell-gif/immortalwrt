@@ -26,10 +26,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential
           sudo apt-get install -y libncurses-dev libssl-dev
-          sudo apt-get install -y python3 python3-distutils python3-setuptools
+          sudo apt-get install -y python3 python3-setuptools
           sudo apt-get install -y rsync wget curl git subversion unzip bc
           sudo apt-get install -y findutils p7zip-full gettext gawk
           sudo apt-get install -y zlib1g-dev libelf-dev
+          # 安装 OpenWrt 编译所需的其他依赖
+          sudo apt-get install -y asciidoc bash bison bzip2 fastjar flex
+          sudo apt-get install -y gawk gcc-multilib genisoimage gettext
+          sudo apt-get install -y liblzma-dev libz-dev make
+          sudo apt-get install -y patch perl python2.7-dev tar uglifyjs
+          sudo apt-get install -y xmlto zlib1g-dev lib32gcc-s1 libc6-dev-i386
+          sudo apt-get install -y subversion jq time intltool
 
       - name: Update feeds
         run: |
@@ -45,17 +52,24 @@ jobs:
           echo "CONFIG_TARGET_ROOTFS_JFFS2=n" >> .config
           echo "CONFIG_TARGET_KERNEL_PARTSIZE=1024" >> .config
           echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14848" >> .config
+          
+          # 添加基本软件包配置
+          echo "CONFIG_PACKAGE_luci=y" >> .config
+          echo "CONFIG_PACKAGE_luci-compat=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-firewall=y" >> .config
+          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
+          
           make defconfig
 
-      - name: Download
-        run: make download -j$(nproc)
+      - name: Download packages
+        run: make download -j$(nproc) || make download -j1
 
-      - name: Build
+      - name: Build firmware
         run: make -j$(nproc) || make -j1 V=s
 
-      - name: Upload
+      - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
           name: tp-wr703n-firmware
-          path: bin/targets/ath79/tiny/*.bin
+          path: bin/targets/ath79/tiny/*squashfs-sysupgrade*.bin
           retention-days: 30
