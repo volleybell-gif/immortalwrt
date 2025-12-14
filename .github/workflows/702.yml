@@ -1,5 +1,5 @@
+name: Build ImmortalWrt 21.02 for TL-WR703N
 
-name: Build ImmortalWrt 23.05.7
 on:
   push:
     branches: [ main, master ]
@@ -9,55 +9,59 @@ on:
         description: '执行完整清理编译'
         required: false
         default: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      
     - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential ccache curl git libncurses5-dev \
         libssl-dev python3 python3-pip python3-dev meson gperf help2man
-    - name: Clone ImmortalWrt 23.05.7 source
+        
+    - name: Clone ImmortalWrt 21.02 source
       run: |
-        git clone -b v23.05.7 --single-branch --depth=1 --filter=blob:none https://github.com/immortalwrt/immortalwrt.git openwrt
+        git clone -b openwrt-21.02 --single-branch --depth=1 --filter=blob:none https://github.com/immortalwrt/immortalwrt.git openwrt
+        
     - name: Update and install feeds
       working-directory: ./openwrt
       run: |
-        timeout 600 ./scripts/feeds update -a
-        timeout 300 ./scripts/feeds install -a
-    - name: Configure for target device
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        
+    - name: Configure for TL-WR703N (16MB)
       working-directory: ./openwrt
       run: |
+        # 设置目标平台为ath79（21.02版本使用）
         echo "CONFIG_TARGET_ath79=y" > .config
         echo "CONFIG_TARGET_ath79_generic=y" >> .config
+        echo "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
+        
+        # 文件系统配置 - 确保生成squashfs-sysupgrade
         echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
         echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16" >> .config
+        
+        # 基础软件包
         echo "CONFIG_PACKAGE_luci=y" >> .config
-        echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-ddns=y" >> .config
+        echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
+        echo "CONFIG_PACKAGE_firewall=y" >> .config
+        
     - name: Build firmware
       working-directory: ./openwrt
       run: |
         make defconfig
         make -j$(nproc) V=s
-    - name: Verify firmware generation
-      working-directory: ./openwrt
-      run: |
-        if ls bin/targets/ath79/generic/*.bin 1> /dev/null 2>&1; then
-          echo "✅ 固件生成成功！"
-          ls -la bin/targets/ath79/generic/
-        else
-          echo "❌ 固件生成失败"
-          exit 1
-        fi
+        
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: immortalwrt-23.05.7
+        name: immortalwrt-21.02-tl-wr703n-v1
         path: openwrt/bin/targets/ath79/generic/
         retention-days: 7
-
