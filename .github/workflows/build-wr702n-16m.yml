@@ -13,7 +13,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # 设置超时
+    timeout-minutes: 120
     
     steps:
     - name: Checkout repository
@@ -42,6 +42,11 @@ jobs:
       run: |
         git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b ${{ github.event.inputs.branch || 'openwrt-21.02' }}
         
+    - name: Copy patch script to ImmortalWrt
+      run: |
+        # 将本仓库中的脚本复制到immortalwrt目录
+        cp -r scripts/ immortalwrt/scripts/
+        
     - name: Update and install feeds
       run: |
         cd immortalwrt
@@ -51,29 +56,138 @@ jobs:
     - name: Apply patches for 16MB
       run: |
         cd immortalwrt
-        chmod +x ../patch-wr702n.sh
-        ../patch-wr702n.sh
+        
+        # 检查补丁脚本是否存在
+        if [ -f "scripts/patch-wr702n.sh" ]; then
+            echo "找到补丁脚本，开始应用..."
+            chmod +x scripts/patch-wr702n.sh
+            ./scripts/patch-wr702n.sh
+        else
+            echo "警告：未找到补丁脚本，将使用默认16MB配置"
+            # 如果没有补丁脚本，应用一个简单补丁
+            if [ -f "target/linux/ar71xx/image/legacy.mk" ]; then
+                sed -i '/define Device\/tplink_tl-wr702n-v1/,/endef/ {
+                    /IMAGE_SIZE/ s/:=.*/:= 16064k/
+                }' target/linux/ar71xx/image/legacy.mk
+                echo "已设置16MB分区大小"
+            fi
+        fi
         
     - name: Configure for TL-WR702N v1 (16MB)
       run: |
         cd immortalwrt
-        cp ../config/wr702n-16m.config .config
-        # 禁用有问题的包
-        sed -i 's/CONFIG_PACKAGE_emortal_default-settings=y/# CONFIG_PACKAGE_emortal_default-settings is not set/' .config
+        
+        # 创建配置文件
+        cat > .config << 'EOF'
+# TP-Link TL-WR702N v1 (16MB) Firmware Configuration
+# Based on ImmortalWrt 21.02
+
+# Target System
+CONFIG_TARGET_ar71xx=y
+CONFIG_TARGET_ar71xx_generic=y
+CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr702n-v1=y
+
+# Filesystem Configuration
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=14080
+
+# Base System
+CONFIG_PACKAGE_base-files=y
+CONFIG_PACKAGE_busybox=y
+CONFIG_BUSYBOX_CUSTOM=y
+
+# Core libraries (解决依赖问题)
+CONFIG_PACKAGE_libc=y
+CONFIG_PACKAGE_libgcc=y
+CONFIG_PACKAGE_libpthread=y
+CONFIG_PACKAGE_libubox=y
+CONFIG_PACKAGE_libubus=y
+CONFIG_PACKAGE_libuci=y
+CONFIG_PACKAGE_liblua=y
+
+# Network
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+
+# Wireless
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_ATH_USER_REGD=y
+
+# Administration
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-base=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_uhttpd=y
+
+# System services
+CONFIG_PACKAGE_dropbear=y
+CONFIG_DROPBEAR_CURVE25519=y
+CONFIG_DROPBEAR_ECC=y
+CONFIG_PACKAGE_opkg=y
+CONFIG_PACKAGE_procd=y
+CONFIG_PACKAGE_ubox=y
+CONFIG_PACKAGE_ubus=y
+CONFIG_PACKAGE_ubusd=y
+CONFIG_PACKAGE_uci=y
+CONFIG_PACKAGE_logd=y
+
+# 16MB Optimization
+CONFIG_PACKAGE_luci-app-ddns=n
+CONFIG_PACKAGE_luci-app-upnp=n
+CONFIG_PACKAGE_luci-app-samba=n
+CONFIG_PACKAGE_luci-app-minidlna=n
+CONFIG_PACKAGE_luci-app-transmission=n
+CONFIG_PACKAGE_luci-app-openvpn=n
+
+# 禁用有问题的包
+CONFIG_PACKAGE_emortal_default-settings=n
+CONFIG_PACKAGE_e2fsprogs=n
+
+# Image Compression
+CONFIG_TARGET_IMAGES_GZIP=y
+
+# Filesystem Support (简化)
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+
+# Utilities
+CONFIG_PACKAGE_block-mount=y
+
+# BPF支持
+CONFIG_PACKAGE_kmod-bpf=y
+EOF
+        
         make defconfig
         
     - name: Build firmware with optimization
       run: |
         cd immortalwrt
-        # 使用多线程，但限制数量避免内存不足
-        THREADS=$(( $(nproc) > 4 ? 4 : $(nproc) ))
+        # 使用多线程编译
+        CPU_COUNT=$(nproc)
+        THREADS=$(( CPU_COUNT > 4 ? 4 : CPU_COUNT ))
+        echo "使用 $THREADS 个线程进行编译"
+        
+        # 并行编译，如果失败则尝试单线程
         make -j$THREADS V=s 2>&1 | tee build.log || {
-          # 如果失败，尝试单线程构建
-          echo "多线程构建失败，尝试单线程..."
-          make -j1 V=sc
+          echo "多线程编译失败，尝试单线程..."
+          make -j1 V=sc 2>&1 | tee build-single.log
         }
         
+    - name: Check if firmware was built
+      run: |
+        cd immortalwrt
+        if ls bin/targets/ar71xx/generic/*.bin 1> /dev/null 2>&1; then
+          echo "✅ 固件编译成功！"
+          ls -lh bin/targets/ar71xx/generic/*.bin
+        else
+          echo "❌ 未找到固件文件，编译可能失败"
+          exit 1
+        fi
+        
     - name: Upload firmware artifacts
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-tl-wr702n-v1-16m
@@ -85,5 +199,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: build-log
-        path: immortalwrt/build.log
+        path: |
+          immortalwrt/build.log
+          immortalwrt/build-single.log
         retention-days: 30
