@@ -1,0 +1,221 @@
+name: Build ImmortalWrt for TL-WR703N 16MB
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'ImmortalWrt Version'
+        required: true
+        default: 'openwrt-21.02'
+      clean_build:
+        description: 'Clean Build'
+        required: true
+        default: 'false'
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ github.sha }}
+        max-size: 2G
+        
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          ccache \
+          git \
+          libncurses5-dev \
+          libssl-dev \
+          python3 \
+          python3-dev \
+          subversion \
+          flex \
+          bison \
+          libelf-dev \
+          zlib1g-dev \
+          rsync \
+          unzip \
+          wget \
+          curl \
+          gawk \
+          file \
+          time \
+          bc \
+          quilt \
+          libtool \
+          libtool-bin \
+          automake \
+          autoconf
+          
+    - name: Clone ImmortalWrt source
+      run: |
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b ${{ github.event.inputs.version }}
+        cd immortalwrt
+        
+        # 修改设备分区为16MB
+        if [ -f "target/linux/ar71xx/image/legacy.mk" ]; then
+          sed -i '/define Device\/tplink_tl-wr703n-v1/,/endef/ {
+            /IMAGE_SIZE/ s/:=.*/:= 16064k/
+          }' target/linux/ar71xx/image/legacy.mk
+          echo "✅ 已修改分区大小为16MB"
+        fi
+        
+        # 更新feeds
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        
+    - name: Create configuration
+      run: |
+        cd immortalwrt
+        
+        # 创建最小配置文件
+        cat > .config << 'EOF'
+# Target System
+CONFIG_TARGET_ar71xx=y
+CONFIG_TARGET_ar71xx_generic=y
+CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y
+
+# Image Configuration
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=14080
+CONFIG_TARGET_IMAGES_GZIP=y
+
+# Base System
+CONFIG_PACKAGE_base-files=y
+CONFIG_PACKAGE_busybox=y
+CONFIG_BUSYBOX_CUSTOM=y
+CONFIG_BUSYBOX_CONFIG_FEATURE_USE_INITTAB=y
+CONFIG_BUSYBOX_CONFIG_FEATURE_EDITING=y
+
+# Essential packages
+CONFIG_PACKAGE_dropbear=y
+CONFIG_PACKAGE_opkg=y
+CONFIG_PACKAGE_procd=y
+CONFIG_PACKAGE_ubox=y
+CONFIG_PACKAGE_ubus=y
+CONFIG_PACKAGE_ubusd=y
+CONFIG_PACKAGE_uci=y
+CONFIG_PACKAGE_logd=y
+CONFIG_PACKAGE_uhttpd=y
+
+# Network
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+
+# Wireless
+CONFIG_PACKAGE_wpad-basic-wolfssl=y
+CONFIG_PACKAGE_kmod-ath=y
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_PACKAGE_kmod-ath9k-common=y
+CONFIG_ATH_USER_REGD=y
+
+# LuCI (可选)
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-base=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_luci-app-firewall=y
+
+# 16MB Optimization
+CONFIG_PACKAGE_luci-app-ddns=n
+CONFIG_PACKAGE_luci-app-upnp=n
+CONFIG_PACKAGE_luci-app-samba=n
+CONFIG_PACKAGE_luci-app-minidlna=n
+
+# Kernel modules
+CONFIG_PACKAGE_kmod-nls-base=y
+CONFIG_PACKAGE_kmod-ipv6=y
+CONFIG_PACKAGE_kmod-ipt-core=y
+CONFIG_PACKAGE_kmod-ipt-conntrack=y
+CONFIG_PACKAGE_kmod-ipt-nat=y
+CONFIG_PACKAGE_kmod-ipt-offload=y
+
+# BPF support (保持启用)
+CONFIG_PACKAGE_kmod-bpf=y
+CONFIG_PACKAGE_kmod-sched-bpf=y
+
+# Clean build option
+EOF
+        
+        # 生成defconfig
+        make defconfig
+        
+    - name: Build firmware (multi-threaded)
+      run: |
+        cd immortalwrt
+        
+        # 确定线程数，留出1个核心给系统
+        CPU_COUNT=$(nproc)
+        BUILD_THREADS=$(( CPU_COUNT - 1 ))
+        if [ $BUILD_THREADS -lt 1 ]; then
+          BUILD_THREADS=1
+        fi
+        if [ $BUILD_THREADS -gt 8 ]; then
+          BUILD_THREADS=8  # 限制最大线程数
+        fi
+        
+        echo "🔄 使用 $BUILD_THREADS 个线程进行编译..."
+        
+        # 编译命令
+        if [ "${{ github.event.inputs.clean_build }}" = "true" ]; then
+          make clean
+        fi
+        
+        # 使用多线程编译，详细输出
+        make -j$BUILD_THREADS V=s 2>&1 | tee build.log || {
+          echo "⚠️  首次编译失败，尝试单线程编译..."
+          make -j1 V=sc 2>&1 | tee build-single.log
+        }
+        
+    - name: Check firmware files
+      run: |
+        cd immortalwrt
+        echo "📁 检查生成的固件文件:"
+        
+        if ls bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin 1>/dev/null 2>&1; then
+          echo "✅ 找到squashfs-sysupgrade固件:"
+          ls -lh bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin
+          
+          # 检查固件大小
+          for file in bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin; do
+            size=$(stat -c%s "$file")
+            echo "📊 $file 大小: $((size / 1024 / 1024))MB ($((size / 1024))KB)"
+          done
+        else
+          echo "❌ 未找到squashfs-sysupgrade固件"
+          echo "📁 当前目录内容:"
+          find bin/targets/ar71xx/generic/ -type f -name "*.bin" 2>/dev/null || echo "无.bin文件"
+          exit 1
+        fi
+        
+    - name: Upload firmware artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: immortalwrt-tl-wr703n-16m
+        path: |
+          immortalwrt/bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin
+          immortalwrt/bin/targets/ar71xx/generic/*.manifest
+        retention-days: 7
+        
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          immortalwrt/build.log
+          immortalwrt/build-single.log
+        retention-days: 7
