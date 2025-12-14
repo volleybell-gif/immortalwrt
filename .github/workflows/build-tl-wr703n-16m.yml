@@ -1,5 +1,5 @@
 
-name: Build ImmortalWrt for TP-WR703N (16MB)
+name: Build ImmortalWrt for TP-WR703N (Optimized)
 
 on:
   workflow_dispatch:
@@ -16,11 +16,19 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        threads: [4]
     
     steps:
+    - name: Clean up disk space before build
+      run: |
+        echo "开始清理磁盘空间..."
+        sudo apt-get clean
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/hostedtoolcache
+        df -h
+
     - name: Checkout ImmortalWrt source
       uses: actions/checkout@v4
       with:
@@ -28,21 +36,21 @@ jobs:
         ref: openwrt-21.02
         submodules: recursive
 
-    - name: Set up environment
+    - name: Set up build environment
       run: |
         export TERM=linux
         echo "TERM=linux" >> $GITHUB_ENV
 
-    - name: Update and install feeds
+    - name: Update and install feeds (selective)
       run: |
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: Configure for TP-WR703N 16MB
       run: |
-        # 使用defconfig而不是menuconfig避免终端问题
+        # 使用defconfig避免交互式配置
         make defconfig
-        # 直接写入配置，避免交互式配置
+        # 直接写入配置到文件
         echo "CONFIG_TARGET_ar71xx=y" >> $CONFIG_FILE
         echo "CONFIG_TARGET_ar71xx_tiny=y" >> $CONFIG_FILE
         echo "CONFIG_TARGET_ar71xx_generic_TPWR703N=y" >> $CONFIG_FILE
@@ -51,17 +59,13 @@ jobs:
         # 设置16MB闪存大小
         echo "CONFIG_TARGET_KERNEL_PARTSIZE=64" >> $CONFIG_FILE
         echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16000" >> $CONFIG_FILE
-        # 禁用不需要的交互功能
+        # 禁用开发模式减少日志输出
         echo "CONFIG_DEVEL=n" >> $CONFIG_FILE
         echo "CONFIG_BUILD_LOG=n" >> $CONFIG_FILE
+        # 验证配置
+        cat $CONFIG_FILE | grep -E "CONFIG_TARGET|CONFIG_ROOTFS"
 
-    - name: Build firmware with multiple threads
+    - name: Build firmware with optimized settings
       run: |
-        make -j${{ matrix.threads }} V=s
-
-    - name: Upload firmware artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: tp-wr703n-16mb-firmware
-        path: bin/targets/ar71xx/tiny/immortalwrt-21.02-ar71xx-tiny-tl-wr703n-v1-squashfs-sysupgrade.bin
-        retention-days: 30
+        # 使用动态线程数，避免过度占用资源
+        make -
