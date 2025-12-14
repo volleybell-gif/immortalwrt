@@ -1,26 +1,39 @@
-
 #!/bin/bash
-# TL-WR702N v1 16MB Flash Patch Script
+# TL-WR702N v1 16MB Flash Patch Script (简化版)
 
-# Apply 16MB flash modifications to device definition
-sed -i 's/tplink_led_read/tplink_wr702n_v1_led_read/g' target/linux/ar71xx/files/arch/mips/ath79/mach-tl-wr702n.c
-sed -i 's/tplink_led_write/tplink_wr702n_v1_led_write/g' target/linux/ar71xx/files/arch/mips/ath79/mach-tl-wr702n.c
+echo "开始应用TL-WR702N v1 (16MB)补丁..."
 
-# Update partition table for 16MB flash
-sed -i '/PARTNAMES :=/c\PARTNAMES := firmware@160k|kernel@4m|rootfs@12160k' target/linux/ar71xx/image/legacy.mk
+cd immortalwrt
 
-# Modify flash partition sizes
-sed -i '/KERNEL_SIZE :=/c\KERNEL_SIZE := 4096k' target/linux/ar71xx/image/legacy.mk
-sed -i '/ROOTFS_SIZE :=/c\ROOTFS_SIZE := 12160k' target/linux/ar71xx/image/legacy.mk
+# 更新并安装所有feeds
+echo "更新feeds..."
+./scripts/feeds update -a
+./scripts/feeds install -a
 
-# Update device profile with 16MB flash information
-echo "define Device/tplink_tl-wr702n-v1" >> target/linux/ar71xx/image/legacy.mk
-echo "  DEVICE_VENDOR := TP-Link" >> target/linux/ar71xx/image/legacy.mk
-echo "  DEVICE_MODEL := TL-WR702N" >> target/linux/ar71xx/image/legacy.mk
-echo "  DEVICE_VARIANT := v1 16MB" >> target/linux/ar71xx/image/legacy.mk
-echo "  DEVICE_PACKAGES := kmod-usb-core kmod-usb2" >> target/linux/ar71xx/image/legacy.mk
-echo "  BOARD_NAME := TL-WR702N-v1" >> target/linux/ar71xx/image/legacy.mk
-echo "  IMAGE_SIZE := 16064k" >> target/linux/ar71xx/image/legacy.mk
-echo "  SUPPORTED_DEVICES += tl-wr702n-v1" >> target/linux/ar71xx/image/legacy.mk
-echo "endef" >> target/linux/ar71xx/image/legacy.mk
-echo "\$(eval \$(call Device,tplink_tl-wr702n-v1))" >> target/linux/ar71xx/image/legacy.mk
+# 创建一个简单的补丁来修改分区大小
+echo "修改分区大小配置..."
+
+# 修改设备定义文件
+if [ -f "target/linux/ar71xx/image/legacy.mk" ]; then
+    echo "备份原始文件..."
+    cp target/linux/ar71xx/image/legacy.mk target/linux/ar71xx/image/legacy.mk.bak
+    
+    echo "修改分区大小..."
+    # 查找TL-WR702N v1的定义并修改IMAGE_SIZE
+    sed -i '/define Device\/tplink_tl-wr702n-v1/,/endef/ {
+        /IMAGE_SIZE/ s/:=.*/:= 16064k/
+        /DEVICE_VARIANT/ s/:=.*/:= v1 16MB/
+    }' target/linux/ar71xx/image/legacy.mk
+    
+    echo "分区大小已修改为16MB"
+else
+    echo "警告：legacy.mk文件不存在，跳过分区修改"
+fi
+
+# 修改内核分区大小
+if [ -f "target/linux/ar71xx/generic/target.mk" ]; then
+    echo "调整内核分区大小..."
+    sed -i 's/KERNEL_SIZE := 4m/KERNEL_SIZE := 4096k/' target/linux/ar71xx/generic/target.mk
+fi
+
+echo "补丁应用完成！"
