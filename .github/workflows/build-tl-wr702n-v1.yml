@@ -2,7 +2,7 @@ name: Build ImmortalWrt for TL-WR702N v1 (16MB)
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       branch:
@@ -13,6 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 120  # 设置超时
+    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -21,26 +23,67 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential ccache curl git libncurses5-dev \
-        libssl-dev python3 python3-dev meson gperf help2man
+        libssl-dev python3 python3-dev meson gperf help2man \
+        subversion flex bison libelf-dev zlib1g-dev rsync unzip time file \
+        wget libtool-bin libtool libc6-dev libgmp-dev libmpfr-dev libmpc-dev \
+        xsltproc libxml-parser-perl python3-setuptools swig bc \
+        gawk binutils-dev quilt texinfo automake autoconf \
+        libncursesw5-dev unrar-free p7zip-full libjson-c-dev libssl-dev \
+        zlib1g-dev libbz2-dev liblzma-dev liblzo2-dev liblz4-dev \
+        libpcre3-dev libpcre3 libcap-dev libcap2
         
-    - name: Configure for TL-WR702N v1
-      run: |
-        echo "CONFIG_TARGET_ar71xx=y" > .config
-        echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
-        echo "CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr702n-v1=y" >> .config
-        echo "CONFIG_PACKAGE_luci=y" >> .config
-        echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-        # 16MB闪存，设置合适的分区大小
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14080" >> .config
+    - name: Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ github.sha }}
+        max-size: 1G
         
-    - name: Build firmware
+    - name: Download ImmortalWrt source
       run: |
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b ${{ github.event.inputs.branch || 'openwrt-21.02' }}
+        
+    - name: Update and install feeds
+      run: |
+        cd immortalwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        
+    - name: Apply patches for 16MB
+      run: |
+        cd immortalwrt
+        chmod +x ../patch-wr702n.sh
+        ../patch-wr702n.sh
+        
+    - name: Configure for TL-WR702N v1 (16MB)
+      run: |
+        cd immortalwrt
+        cp ../config/wr702n-16m.config .config
+        # 禁用有问题的包
+        sed -i 's/CONFIG_PACKAGE_emortal_default-settings=y/# CONFIG_PACKAGE_emortal_default-settings is not set/' .config
         make defconfig
-        make -j$(nproc)
+        
+    - name: Build firmware with optimization
+      run: |
+        cd immortalwrt
+        # 使用多线程，但限制数量避免内存不足
+        THREADS=$(( $(nproc) > 4 ? 4 : $(nproc) ))
+        make -j$THREADS V=s 2>&1 | tee build.log || {
+          # 如果失败，尝试单线程构建
+          echo "多线程构建失败，尝试单线程..."
+          make -j1 V=sc
+        }
         
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-tl-wr702n-v1-16m
-        path: bin/targets/ar71xx/generic/
+        path: immortalwrt/bin/targets/ar71xx/generic/
+        retention-days: 30
+        
+    - name: Upload build log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log
+        path: immortalwrt/build.log
         retention-days: 30
