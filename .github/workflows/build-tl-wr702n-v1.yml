@@ -1,0 +1,46 @@
+name: Build ImmortalWrt for TL-WR702N v1 (16MB)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'ImmortalWrt分支版本'
+        required: true
+        default: 'openwrt-21.02'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup build environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential ccache curl git libncurses5-dev \
+        libssl-dev python3 python3-dev meson gperf help2man
+        
+    - name: Configure for TL-WR702N v1
+      run: |
+        echo "CONFIG_TARGET_ar71xx=y" > .config
+        echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
+        echo "CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr702n-v1=y" >> .config
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
+        # 16MB闪存，设置合适的分区大小
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14080" >> .config
+        
+    - name: Build firmware
+      run: |
+        make defconfig
+        make -j$(nproc)
+        
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: immortalwrt-tl-wr702n-v1-16m
+        path: bin/targets/ar71xx/generic/
+        retention-days: 30
