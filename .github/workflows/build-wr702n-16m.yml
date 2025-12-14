@@ -33,7 +33,7 @@ jobs:
     - name: Configure for TL-WR702N v1 (16MB)
       run: |
         cd immortalwrt
-        cp ../configs/wr702n-16m.config .config
+        cp ../config/wr702n-16m.config .config
         make defconfig
         
     - name: Build firmware
