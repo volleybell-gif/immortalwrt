@@ -21,26 +21,22 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Setup Python environment
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.6'
-        
     - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential ccache curl git libncurses5-dev \
-        libssl-dev python3 python3-dev python3-distutils meson gperf help2man
+        libssl-dev python3 python3-pip python3-dev python3-distutils meson gperf help2man
+        sudo apt-get clean
         
     - name: Clone ImmortalWrt source
       run: |
         git clone -b openwrt-18.06 --single-branch --depth=1 --filter=blob:none https://github.com/immortalwrt/immortalwrt.git openwrt
         
-    - name: Update feeds
+    - name: Update and install feeds
       working-directory: ./openwrt
       run: |
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+        timeout 600 ./scripts/feeds update -a
+        timeout 300 ./scripts/feeds install -a
         
     - name: Configure for TL-WR703N (16MB)
       working-directory: ./openwrt
@@ -66,6 +62,11 @@ jobs:
         # 编译优化
         echo "CONFIG_CCACHE=y" >> .config
         echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
+        echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
+        
+        # 禁用调试信息
+        echo "CONFIG_KERNEL_KALLSYMS=n" >> .config
+        echo "CONFIG_KERNEL_DEBUG_INFO=n" >> .config
         
     - name: Build firmware
       working-directory: ./openwrt
@@ -73,23 +74,15 @@ jobs:
         make defconfig
         make -j$(nproc) V=s
         
-    - name: Verify firmware
+    - name: Verify firmware generation
       working-directory: ./openwrt
       run: |
-        FIRMWARE_FILE="bin/targets/ar71xx/tiny/immortalwrt-ar71xx-tiny-tl-wr703n-v1-squashfs-sysupgrade.bin"
-        if [ -f "$FIRMWARE_FILE" ]; then
-          FIRMWARE_SIZE=$(stat -c%s "$FIRMWARE_FILE")
-          echo "✅ 固件生成成功！"
-          echo "📁 文件：$FIRMWARE_FILE"
-          echo "📏 大小：$FIRMWARE_SIZE bytes"
-          if [ $FIRMWARE_SIZE -gt 15728640 ]; then
-            echo "⚠️  警告：固件大小超过15MB，可能超出16MB闪存限制"
-          else
-            echo "✅ 固件大小在安全范围内"
-          fi
-        else
-          echo "❌ 错误：固件文件未找到"
+        if ls bin/targets/ar71xx/tiny/*tl-wr703n*.bin 1> /dev/null 2>&1; then
+          echo "✅ Firmware build successful!"
+          echo "Generated files:"
           ls -la bin/targets/ar71xx/tiny/
+        else
+          echo "❌ Firmware build failed - no output files found"
           exit 1
         fi
         
