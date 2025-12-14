@@ -1,5 +1,5 @@
-name: Build ImmortalWrt 21.02 for TL-WR703N
 
+name: Build ImmortalWrt 21.02 for TL-WR703N
 on:
   push:
     branches: [ main, master ]
@@ -9,56 +9,46 @@ on:
         description: '执行完整清理编译'
         required: false
         default: false
-
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      
     - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential ccache curl git libncurses5-dev \
         libssl-dev python3 python3-pip python3-dev meson gperf help2man
-        
     - name: Clone ImmortalWrt 21.02 source
       run: |
         git clone -b openwrt-21.02 --single-branch --depth=1 --filter=blob:none https://github.com/immortalwrt/immortalwrt.git openwrt
-        
     - name: Update and install feeds
       working-directory: ./openwrt
       run: |
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        
     - name: Configure for TL-WR703N (16MB)
       working-directory: ./openwrt
       run: |
-        # 设置目标平台为ath79（21.02版本使用）
         echo "CONFIG_TARGET_ath79=y" > .config
         echo "CONFIG_TARGET_ath79_generic=y" >> .config
         echo "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
-        
-        # 文件系统配置 - 确保生成squashfs-sysupgrade
         echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
         echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16" >> .config
-        
-        # 基础软件包
+        echo "CONFIG_PACKAGE_dnsmasq-full=n" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
         echo "CONFIG_PACKAGE_firewall=y" >> .config
-        
+        echo "CONFIG_CCACHE=y" >> .config
+        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
     - name: Build firmware
       working-directory: ./openwrt
       run: |
         make defconfig
         make -j$(nproc) V=s
-        
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
