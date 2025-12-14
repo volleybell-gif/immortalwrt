@@ -94,7 +94,7 @@ CONFIG_PACKAGE_opkg=y
 CONFIG_PACKAGE_block-mount=y
 EOF
         
-        # 应用配置并检查
+        # 应用配置
         make defconfig
     
     - name: Download package dependencies
@@ -111,15 +111,10 @@ EOF
         cd openwrt
         echo "使用 ${{ env.JOBS }} 个线程进行编译..."
         
-        # 编译固件（带详细输出，但限制行数）
-        make -j${{ env.JOBS }} 2>&1 | tail -100
-        
-        # 检查是否编译成功
-        if ls bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*.bin >/dev/null 2>&1; then
-          echo "编译成功！"
-          ls -la bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*.bin
-        else
-          echo "编译失败，尝试单线程编译..."
+        # 编译固件（限制输出行数）
+        set -o pipefail
+        if ! make -j${{ env.JOBS }} 2>&1 | tail -100; then
+          echo "多线程编译失败，尝试单线程编译..."
           make -j1 V=s
         fi
     
@@ -129,19 +124,19 @@ EOF
         FIRMWARE_DIR="bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}"
         
         # 查找固件文件
-        FIRMWARE_FILE=$(find $FIRMWARE_DIR -name "*squashfs*sysupgrade*.bin" -type f | head -1)
+        FIRMWARE_FILE=$(find "$FIRMWARE_DIR" -name "*squashfs*sysupgrade*.bin" -type f | head -1)
         
         if [ -f "$FIRMWARE_FILE" ]; then
           DATE=$(date +"%Y%m%d")
           NEW_NAME="immortalwrt-21.02-${{ env.TARGET }}-${{ env.SUBTARGET }}-${{ env.PROFILE }}-16mb-squashfs-sysupgrade-$DATE.bin"
           
           cp "$FIRMWARE_FILE" "$FIRMWARE_DIR/$NEW_NAME"
-          echo "原始文件: $(basename $FIRMWARE_FILE)"
+          echo "原始文件: $(basename "$FIRMWARE_FILE")"
           echo "新文件名: $NEW_NAME"
-          echo "文件大小: $(du -h $FIRMWARE_DIR/$NEW_NAME | cut -f1)"
+          echo "文件大小: $(du -h "$FIRMWARE_DIR/$NEW_NAME" | cut -f1)"
         else
           echo "错误：未找到固件文件"
-          ls -la $FIRMWARE_DIR/
+          ls -la "$FIRMWARE_DIR/"
           exit 1
         fi
     
@@ -170,7 +165,7 @@ EOF
           for file in openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*.bin; do
             if [ -f "$file" ]; then
               SIZE=$(du -h "$file" | cut -f1)
-              echo "- $(basename $file) ($SIZE)" >> $GITHUB_STEP_SUMMARY
+              echo "- $(basename "$file") ($SIZE)" >> $GITHUB_STEP_SUMMARY
             fi
           done
         fi
