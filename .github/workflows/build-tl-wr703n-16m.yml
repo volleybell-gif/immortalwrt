@@ -11,6 +11,7 @@ on:
 env:
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
+  TERM: linux
 
 jobs:
   build:
@@ -27,6 +28,11 @@ jobs:
         ref: openwrt-21.02
         submodules: recursive
 
+    - name: Set up environment
+      run: |
+        export TERM=linux
+        echo "TERM=linux" >> $GITHUB_ENV
+
     - name: Update and install feeds
       run: |
         ./scripts/feeds update -a
@@ -34,14 +40,20 @@ jobs:
 
     - name: Configure for TP-WR703N 16MB
       run: |
-        echo "CONFIG_TARGET_ar71xx=y" > $CONFIG_FILE
-        echo "CONFIG_TARGET_ar71xx_tiny=y" > $CONFIG_FILE
-        echo "CONFIG_TARGET_ar71xx_generic_TPWR703N=y" > $CONFIG_FILE
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" > $CONFIG_FILE
-        echo "CONFIG_TARGET_ROOTFS_JFFS2=n" > $CONFIG_FILE
+        # 使用defconfig而不是menuconfig避免终端问题
+        make defconfig
+        # 直接写入配置，避免交互式配置
+        echo "CONFIG_TARGET_ar71xx=y" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_ar71xx_tiny=y" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_ar71xx_generic_TPWR703N=y" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_ROOTFS_JFFS2=n" >> $CONFIG_FILE
         # 设置16MB闪存大小
-        echo "CONFIG_TARGET_KERNEL_PARTSIZE=64" > $CONFIG_FILE
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16000" > $CONFIG_FILE
+        echo "CONFIG_TARGET_KERNEL_PARTSIZE=64" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16000" >> $CONFIG_FILE
+        # 禁用不需要的交互功能
+        echo "CONFIG_DEVEL=n" >> $CONFIG_FILE
+        echo "CONFIG_BUILD_LOG=n" >> $CONFIG_FILE
 
     - name: Build firmware with multiple threads
       run: |
