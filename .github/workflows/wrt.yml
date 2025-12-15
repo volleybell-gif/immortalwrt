@@ -50,10 +50,7 @@ jobs:
         export CCACHE_DIR=/tmp/ccache
         export CCACHE_MAXSIZE=2G
         
-        # 启用CCache
-        sed -i 's/# CONFIG_CCACHE is not set/CONFIG_CCACHE=y/' .config 2>/dev/null || true
-        
-        # 使用多个echo命令创建配置，避免YAML多行字符串问题
+        # 创建最小配置，禁用 GRUB2
         echo "# 目标设备" > .config
         echo "CONFIG_TARGET_ar71xx=y" >> .config
         echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
@@ -100,6 +97,9 @@ jobs:
         echo "CONFIG_PACKAGE_emortal_default-settings=n" >> .config
         echo "CONFIG_PACKAGE_luci=n" >> .config
         echo "CONFIG_PACKAGE_uhttpd=n" >> .config
+        echo "CONFIG_PACKAGE_grub2=n" >> .config  # 禁用 GRUB2
+        echo "CONFIG_GRUB2=n" >> .config
+        echo "CONFIG_GRUB2_EFI=n" >> .config
         echo "# 性能优化" >> .config
         echo "CONFIG_CCACHE=y" >> .config
         echo "CONFIG_KERNEL_KALLSYMS=n" >> .config
@@ -107,6 +107,23 @@ jobs:
         echo "CONFIG_KERNEL_DEBUG_KERNEL=n" >> .config
         
         make defconfig
+        
+        # 再次确认禁用 GRUB2
+        sed -i 's/CONFIG_PACKAGE_grub2=y/# CONFIG_PACKAGE_grub2 is not set/' .config
+        sed -i 's/CONFIG_GRUB2=y/# CONFIG_GRUB2 is not set/' .config
+        
+    - name: Skip GRUB2 compilation
+      run: |
+        cd immortalwrt
+        
+        echo "🛑 跳过 GRUB2 编译..."
+        
+        # 标记 GRUB2 为已编译，跳过编译
+        mkdir -p package/boot/grub2/build_dir/host
+        touch package/boot/grub2/stamp-compile 2>/dev/null || true
+        touch package/boot/grub2/stamp-install 2>/dev/null || true
+        
+        echo "✅ GRUB2 编译已跳过"
         
     - name: Fast parallel build
       run: |
