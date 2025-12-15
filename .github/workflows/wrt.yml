@@ -1,13 +1,13 @@
 name: Build ImmortalWrt for TP-WR703N (16M)
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build.yml'  # 只有工作流文件变更才触发
+      - '.github/workflows/build.yml'
   schedule:
-    - cron: '0 2 * * 0'  # 每周日凌晨2点自动编译
+    - cron: '0 2 * * 0'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -19,14 +19,12 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # 设置超时时间
+    timeout-minutes: 120
     
     steps:
-    # 步骤1：检出仓库
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    # 步骤2：设置CCache缓存
     - name: Cache ccache
       uses: actions/cache@v4
       id: cache-ccache
@@ -38,7 +36,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-ccache-
 
-    # 步骤3：设置编译缓存
     - name: Cache build directories
       uses: actions/cache@v4
       id: cache-build
@@ -52,7 +49,6 @@ jobs:
           ${{ runner.os }}-immortalwrt-${{ env.REPO_BRANCH }}-
           ${{ runner.os }}-immortalwrt-
 
-    # 步骤4：安装依赖
     - name: Install dependencies
       run: |
         sudo apt-get update -y
@@ -62,7 +58,6 @@ jobs:
           python3-setuptools python3-dev rsync subversion swig time xsltproc \
           zlib1g-dev unzip wget upx-ucl
 
-    # 步骤5：克隆源码
     - name: Clone ImmortalWrt source
       run: |
         if [ ! -d "openwrt" ]; then
@@ -71,7 +66,6 @@ jobs:
           echo "Directory openwrt already exists, skipping clone."
         fi
 
-    # 步骤6：配置构建环境
     - name: Setup build environment
       run: |
         cd openwrt
@@ -83,8 +77,8 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-        # 设置目标平台 - 使用menuconfig的方式更可靠
-        cat > .config << EOF
+        # 设置目标平台
+        cat > .config << 'EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_tiny=y
 CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y
@@ -116,14 +110,12 @@ EOF
         echo "=== 配置文件内容 ==="
         head -50 .config
 
-    # 步骤7：下载预编译文件
     - name: Download pre-compiled files
       run: |
         cd openwrt
         make download -j$(nproc)
-        find dl -size +1024M -exec rm -f {} \;  # 删除过大的下载文件
+        find dl -size +1024M -exec rm -f {} \;
 
-    # 步骤8：并行编译（核心步骤）
     - name: Build firmware
       run: |
         cd openwrt
@@ -134,7 +126,7 @@ EOF
         export CCACHE_DIR="/tmp/ccache"
         export CCACHE_BASEDIR="$(pwd)"
         
-        # 获取CPU核心数，预留2个核心给系统
+        # 获取CPU核心数
         CPU_CORES=$(($(nproc) - 2))
         if [ $CPU_CORES -lt 1 ]; then
           CPU_CORES=1
@@ -150,20 +142,18 @@ EOF
         make -j${CPU_CORES} tools/install
         make -j${CPU_CORES} toolchain/install
         
-        # 编译固件
-        time make -j${CPU_CORES} V=s 2>&1 | tee build.log || {
-          echo "编译失败，尝试单线程编译..."
+        # 编译固件 - 移除了有问题的 time 命令
+        make -j${CPU_CORES} V=s 2>&1 | tee build.log || {
+          echo "多线程编译失败，尝试单线程编译..."
           make -j1 V=s 2>&1 | tee build-error.log
           exit 1
         }
         
-        # 检查生成的固件
         echo "========================================="
         echo "编译完成，检查固件大小..."
         find bin/targets -name "*.bin" -o -name "*.img" | xargs ls -lh
         echo "========================================="
 
-    # 步骤9：检查固件大小
     - name: Check firmware size
       run: |
         cd openwrt
@@ -176,20 +166,18 @@ EOF
         fi
         
         SIZE=$(stat -c%s "$FIRMWARE")
-        MAX_SIZE=16777216  # 16MB = 16*1024*1024
+        MAX_SIZE=16777216
         
         echo "固件文件: $FIRMWARE"
         echo "固件大小: $SIZE 字节 ($(($SIZE/1024/1024)) MB)"
         
         if [ $SIZE -gt $MAX_SIZE ]; then
           echo "错误：固件大小超过16MB限制！"
-          echo "尝试清理配置重新编译..."
           exit 1
         else
           echo "✓ 固件大小检查通过"
         fi
 
-    # 步骤10：上传固件
     - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
@@ -199,10 +187,8 @@ EOF
           openwrt/bin/targets/ath79/tiny/*.manifest
         retention-days: 30
 
-    # 步骤11：清理大文件（可选）
     - name: Cleanup large files
       if: always()
       run: |
-        # 清理大文件节省空间
-        find . -name "*.log" -size +100M -delete
-        du -sh ./* 2>/dev/null | sort -hr | head -10
+        find . -name "*.log" -size +100M -delete 2>/dev/null || true
+        du -sh ./* 2>/dev/null | sort -hr | head -10 || true
