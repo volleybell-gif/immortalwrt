@@ -11,33 +11,25 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Check disk space before build
+    - name: Check disk space
       run: |
-        echo "📊 编译前磁盘空间检查:"
+        echo "Disk space before build:"
         df -h
-        echo "可用内存:"
         free -h
         
-    - name: Setup minimal build environment
+    - name: Setup build environment
       run: |
         sudo apt update
-        # 只安装最必要的依赖
         sudo apt install -y python3 python3-dev build-essential git libncurses5-dev libssl-dev
         sudo apt install -y subversion flex bison libelf-dev zlib1g-dev rsync unzip
-        # 清理 apt 缓存节省空间
-        sudo apt clean
-        sudo rm -rf /var/lib/apt/lists/*
         
-    - name: Clone ImmortalWrt with minimal history
+    - name: Clone ImmortalWrt
       run: |
         git clone --depth=1 --single-branch https://github.com/immortalwrt/immortalwrt.git
         
     - name: Configure for TL-WR703N 16MB
       run: |
         cd immortalwrt
-        
-        # 清理一些不必要的目录节省空间
-        rm -rf docs/ package/feeds/ tools/
         
         # 创建最小配置
         cat > .config << 'EOF'
@@ -51,69 +43,28 @@ CONFIG_PACKAGE_base-files=y
 CONFIG_PACKAGE_busybox=y
 EOF
         
-        # 只配置目标设备，不更新所有 feeds
+    - name: Build step by step
+      run: |
+        cd immortalwrt
+        
+        echo "Step 1: Generate config"
         make defconfig
         
-    - name: Build only target files
-      run: |
-        cd immortalwrt
+        echo "Step 2: Build toolchain"
+        make toolchain/install -j$(nproc)
         
-        echo "📊 编译前磁盘空间:"
-        df -h
+        echo "Step 3: Build target"
+        make target/linux/compile -j$(nproc)
         
-        export PYTHON=python3
+        echo "Step 4: Build packages"
+        make package/base-files/compile -j$(nproc)
+        make package/busybox/compile -j$(nproc)
         
-        # 分步编译，节省空间
-        echo "1. 编译工具链..."
-        make toolchain/install -j2
-        
-        echo "2. 编译内核..."
-        make target/linux/compile -j2
-        
-        echo "3. 编译基础包..."
-        make package/base-files/compile -j2
-        make package/busybox/compile -j2
-        
-        echo "4. 生成最终镜像..."
-        make -j2
-        
-        echo "📊 编译后磁盘空间:"
-        df -h
-        
-    - name: Clean up to save space before upload
-      run: |
-        cd immortalwrt
-        
-        echo "清理中间文件节省空间..."
-        # 清理编译中间文件
-        rm -rf build_dir/ staging_dir/ tmp/ logs/
-        
-        # 只保留 ar71xx 相关文件
-        if [ -d "bin/targets" ]; then
-          # 删除其他架构的文件
-          find bin/targets -mindepth 1 -maxdepth 1 -type d ! -name 'ar71xx' -exec rm -rf {} + 2>/dev/null || true
-          # 清理 packages
-          rm -rf bin/packages 2>/dev/null || true
-        fi
-        
-        echo "最终磁盘空间:"
-        df -h
-        echo "固件大小:"
-        du -sh bin/targets/ar71xx/generic/ || echo "无固件"
+        echo "Step 5: Final build"
+        make -j$(nproc)
         
     - name: Upload firmware
-      if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: tl-wr703n-16m-firmware
+        name: tl-wr703n-firmware
         path: immortalwrt/bin/targets/ar71xx/generic/
-        retention-days: 7
-        
-    - name: Upload disk info on failure
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: debug-info
-        path: |
-          /home/runner/work/_temp/*.log
-        retention-days: 1
