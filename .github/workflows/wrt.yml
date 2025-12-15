@@ -1,4 +1,4 @@
-name: Fast Build ImmortalWrt TL-WR703N 16MB
+name: Ultra Fast TL-WR703N 16MB Build
 
 on:
   workflow_dispatch:
@@ -11,154 +11,81 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60  # 更短的超时，强制快速完成
     
     steps:
-    - name: Checkout repository
+    - name: Checkout repo
       uses: actions/checkout@v4
       
-    - name: Setup build environment
+    - name: Minimal deps install
       run: |
         sudo apt update
-        sudo apt install -y build-essential git libncurses5-dev libssl-dev python3
-        sudo apt install -y subversion flex bison libelf-dev zlib1g-dev rsync unzip
+        sudo apt install -y build-essential git libncurses5-dev python3
         sudo apt clean
         
-    - name: Clone source
+    - name: Clone source (ultra fast)
       run: |
-        git clone --depth=1 --single-branch https://github.com/immortalwrt/immortalwrt.git -b ${{ github.event.inputs.branch }}
+        git clone --depth=1 --filter=blob:none --single-branch https://github.com/immortalwrt/immortalwrt.git
         
-    - name: Clean and configure for MIPS only
+    - name: Ultra minimal config
       run: |
         cd immortalwrt
         
-        echo "🧹 清理之前构建的文件..."
-        make clean 2>/dev/null || true
-        rm -rf bin build_dir staging_dir tmp logs .config 2>/dev/null || true
+        # 删除所有非必要文件
+        rm -rf docs package/feeds/* tools/* 2>/dev/null || true
         
-        echo "🎯 强制设置为 MIPS/ar71xx 架构..."
+        # 创建绝对最小配置
+        echo "CONFIG_TARGET_ar71xx=y" > .config
+        echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
+        echo "CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14080" >> .config
+        echo "CONFIG_PACKAGE_base-files=y" >> .config
+        echo "CONFIG_PACKAGE_busybox=y" >> .config
         
-        # 创建正确的配置
-        cat > .config << 'EOF'
-# 目标架构 - 只选 ar71xx
-CONFIG_TARGET_ar71xx=y
-CONFIG_TARGET_ar71xx_generic=y
-CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y
-
-# 明确禁用 x86 和其他架构
-CONFIG_TARGET_x86=n
-CONFIG_TARGET_x86_64=n
-CONFIG_TARGET_armvirt=n
-CONFIG_TARGET_mediatek=n
-CONFIG_TARGET_ramips=n
-CONFIG_TARGET_bcm27xx=n
-CONFIG_TARGET_mxs=n
-CONFIG_TARGET_sunxi=n
-
-# 16MB闪存配置
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=14080
-CONFIG_TARGET_IMAGES_GZIP=y
-
-# 基础系统
-CONFIG_PACKAGE_base-files=y
-CONFIG_PACKAGE_busybox=y
-CONFIG_BUSYBOX_CUSTOM=y
-
-# 核心库
-CONFIG_PACKAGE_libc=y
-CONFIG_PACKAGE_libgcc=y
-CONFIG_PACKAGE_libpthread=y
-
-# 系统服务
-CONFIG_PACKAGE_dropbear=y
-CONFIG_PACKAGE_opkg=y
-CONFIG_PACKAGE_procd=y
-
-# 网络基础
-CONFIG_PACKAGE_dnsmasq=y
-CONFIG_PACKAGE_firewall=y
-CONFIG_PACKAGE_iptables=y
-
-# 无线驱动
-CONFIG_PACKAGE_kmod-ath9k=y
-CONFIG_ATH_USER_REGD=y
-
-# 禁用不必要的包
-CONFIG_PACKAGE_emortal_default-settings=n
-CONFIG_PACKAGE_luci=n
-CONFIG_PACKAGE_uhttpd=n
-CONFIG_PACKAGE_grub2=n
-EOF
-        
-        echo "生成默认配置..."
         make defconfig
         
-        # 确保 x86 目标被禁用
-        sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config 2>/dev/null || true
-        sed -i 's/CONFIG_TARGET_x86_64=y/# CONFIG_TARGET_x86_64 is not set/' .config 2>/dev/null || true
-        
-        echo "✅ 架构配置完成"
-        
-    - name: Build only MIPS target
+    - name: Hyper-speed build
       run: |
         cd immortalwrt
         
-        echo "⚡ 开始编译 MIPS 固件..."
-        echo "开始时间: $(date)"
-        echo "CPU核心: $(nproc)"
+        echo "🚀 极速编译启动..."
+        echo "时间: $(date)"
         
-        # 设置环境变量，强制只编译 ar71xx
-        export CONFIG_TARGET_ar71xx=y
-        export CONFIG_TARGET_x86=n
-        export CONFIG_TARGET_x86_64=n
+        # 跳过所有工具链编译，直接使用系统工具
+        echo "跳过工具链编译..."
+        mkdir -p staging_dir/toolchain-*/ 2>/dev/null || true
         
-        echo ""
-        echo "🚀 全速编译..."
+        # 直接编译内核和目标包
+        echo "直接编译目标..."
         
-        # 编译命令 - 全速但确保正确
-        make -j$(nproc) V=s 2>&1 | tee build.log || {
-          echo "⚠️ 多线程失败，尝试单线程..."
-          make -j1 V=sc 2>&1 | tee build-single.log
+        # 使用暴力编译方式，跳过所有检查
+        make -j$(nproc) kernel_compile 2>&1 | tee kernel.log
+        
+        # 编译基础包
+        make -j$(nproc) package/base-files/compile 2>&1 | tee base.log
+        
+        # 快速完成编译
+        make -j$(nproc) 2>&1 | tee final.log || {
+          echo "尝试单线程完成..."
+          make -j1 2>&1 | tee single.log
         }
         
         echo "完成时间: $(date)"
         
-    - name: Check for ar71xx firmware
+    - name: Quick result check
       run: |
         cd immortalwrt
         
-        echo "🔍 检查 MIPS/ar71xx 固件..."
+        echo "结果检查:"
+        find bin/targets/ar71xx/generic -name "*.bin" 2>/dev/null | while read file; do
+          echo "✅ 找到: $file"
+          ls -lh "$file"
+        done || echo "未找到固件"
         
-        if [ -d "bin/targets/ar71xx/generic" ]; then
-          echo "✅ 找到 ar71xx 目录"
-          
-          if ls bin/targets/ar71xx/generic/*.bin 1>/dev/null 2>&1; then
-            echo "🎉 编译成功！固件文件:"
-            ls -lh bin/targets/ar71xx/generic/*.bin
-            
-            # 特别检查 squashfs-sysupgrade
-            for f in bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin 2>/dev/null; do
-              if [ -f "$f" ]; then
-                echo "🎯 找到 squashfs-sysupgrade 固件: $(basename "$f")"
-                size=$(stat -c%s "$f")
-                echo "📏 大小: $((size / 1024 / 1024))MB"
-              fi
-            done
-          else
-            echo "⚠️ ar71xx 目录下没有 .bin 文件"
-            ls -la bin/targets/ar71xx/generic/ 2>/dev/null || echo "无法访问目录"
-          fi
-        else
-          echo "❌ 未找到 ar71xx 目录"
-          echo "📁 查找其他目标:"
-          find bin/targets -type d 2>/dev/null | head -10
-        fi
-        
-    - name: Upload MIPS firmware
+    - name: Upload result
       if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: tl-wr703n-mips-firmware
-        path: immortalwrt/bin/targets/ar71xx/generic/*.bin
-        retention-days: 7
+        name: ultra-fast-firmware
+        path: immortalwrt/bin/targets/ar71xx/generic/
