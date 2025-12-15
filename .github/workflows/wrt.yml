@@ -1,217 +1,155 @@
-name: Build ImmortalWrt for TP-WR703N (16M)
+name: Build ImmortalWrt for TP-WR703N
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
     paths:
       - '.github/workflows/build.yml'
   schedule:
-    - cron: '0 2 * * 0'  # 每周日凌晨2点自动编译
+    - cron: '0 2 * * 0'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: openwrt-21.02
-  TARGET: ath79
-  SUBTARGET: tiny
-  PROFILE: tp-link_tl-wr703n-v1
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Cache ccache
-      uses: actions/cache@v4
-      id: cache-ccache
-      with:
-        path: |
-          ~/.ccache
-          openwrt/.ccache
-        key: ${{ runner.os }}-ccache-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-ccache-
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Cache build directories
-      uses: actions/cache@v4
-      id: cache-build
-      with:
-        path: |
-          openwrt/dl
-          openwrt/build_dir
-          openwrt/staging_dir
-        key: ${{ runner.os }}-immortalwrt-${{ env.REPO_BRANCH }}-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-immortalwrt-${{ env.REPO_BRANCH }}-
-          ${{ runner.os }}-immortalwrt-
+      - name: Setup ccache cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install -y \
-          build-essential \
-          ccache \
-          ecj \
-          fastjar \
-          file \
-          g++ \
-          gawk \
-          gettext \
-          git \
-          libelf-dev \
-          libncurses5-dev \
-          libncursesw5-dev \
-          libssl-dev \
-          python3 \
-          python3-pip \
-          python3-setuptools \
-          python3-dev \
-          rsync \
-          subversion \
-          swig \
-          time \
-          xsltproc \
-          zlib1g-dev \
-          unzip \
-          wget \
-          upx-ucl
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ccache \
+            ecj \
+            fastjar \
+            file \
+            g++ \
+            gawk \
+            gettext \
+            git \
+            java-propose-classpath \
+            libelf-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            libssl-dev \
+            python3 \
+            python3-pip \
+            python3-setuptools \
+            python3-dev \
+            rsync \
+            subversion \
+            swig \
+            time \
+            xsltproc \
+            zlib1g-dev \
+            unzip \
+            wget \
+            upx-ucl
 
-    - name: Clone ImmortalWrt source
-      run: |
-        if [ ! -d "openwrt" ]; then
+      - name: Clone ImmortalWrt source
+        run: |
           git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
-        else
-          echo "Directory openwrt already exists, skipping clone."
-        fi
 
-    - name: Setup build environment
-      run: |
-        cd openwrt
-        
-        # 清理可能存在的配置文件
-        rm -f .config .config.old
-        
-        # 更新feeds
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-        
-        # 创建默认配置
-        cat << 'EOF' > .config
+      - name: Configure build
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+          # 创建最小配置
+          cat > .config << 'EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_tiny=y
 CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_ROOTFS_PARTSIZE=14
 CONFIG_CCACHE=y
-# CONFIG_PACKAGE_luci is not set
-# CONFIG_PACKAGE_luci-ssl is not set
-# CONFIG_PACKAGE_wpad-basic-wolfssl is not set
-# CONFIG_PACKAGE_wpad-basic-openssl is not set
 CONFIG_PACKAGE_wpad-basic=y
-# CONFIG_PACKAGE_firewall4 is not set
 CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
 CONFIG_KERNEL_BUILD_DOMAIN="immortalwrt.org"
 CONFIG_DEBUG_INFO=n
 CONFIG_USE_MKLIBS=n
-CONFIG_CCACHE_DIR="/tmp/ccache"
 CONFIG_BUILD_LOG=y
 EOF
-        
-        # 应用配置
-        make defconfig
+          
+          # 禁用不需要的包
+          echo "# CONFIG_PACKAGE_luci is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-ssl is not set" >> .config
+          echo "# CONFIG_PACKAGE_firewall4 is not set" >> .config
+          echo "# CONFIG_PACKAGE_nftables is not set" >> .config
+          
+          make defconfig
 
-    - name: Download pre-compiled files
-      run: |
-        cd openwrt
-        make download -j$(nproc)
-        
-        # 清理过大的下载文件
-        find dl -size +500M -exec rm -f {} \; 2>/dev/null || true
+      - name: Download dependencies
+        run: |
+          cd openwrt
+          make download -j$(nproc) || make download -j1 V=s
 
-    - name: Build firmware
-      run: |
-        cd openwrt
-        
-        # 设置ccache
-        ccache --max-size=2G
-        export CCACHE_DIR="/tmp/ccache"
-        export CCACHE_BASEDIR="$(pwd)"
-        
-        # 获取CPU核心数
-        CPU_CORES=$(nproc)
-        echo "CPU核心数: $CPU_CORES"
-        
-        echo "========================================="
-        echo "开始编译..."
-        echo "CCache状态:"
-        ccache -s
-        echo "========================================="
-        
-        # 编译工具链
-        make tools/compile -j$CPU_CORES || make tools/compile -j1 V=s
-        
-        # 编译工具
-        make toolchain/compile -j$CPU_CORES || make toolchain/compile -j1 V=s
-        
-        # 编译目标文件
-        make target/compile -j$CPU_CORES || make target/compile -j1 V=s
-        
-        # 编译固件
-        make -j$CPU_CORES V=s 2>&1 | tee build.log || {
-          echo "多线程编译失败，尝试单线程编译..."
-          make -j1 V=s 2>&1 | tee build-error.log
-          exit 1
-        }
-        
-        echo "========================================="
-        echo "编译完成"
-        echo "========================================="
+      - name: Build with ccache and multicore
+        run: |
+          cd openwrt
+          
+          # 设置ccache
+          ccache --max-size=2G
+          ccache -s
+          
+          # 多线程编译
+          CPU_CORES=$(nproc)
+          echo "使用 $CPU_CORES 个CPU核心进行编译"
+          
+          # 编译固件
+          make -j$CPU_CORES V=s 2>&1 | tee build.log || {
+            echo "多线程编译失败，切换到单线程..."
+            make -j1 V=s 2>&1 | tee build-error.log
+            exit 1
+          }
 
-    - name: Check firmware size
-      run: |
-        cd openwrt
-        
-        # 查找固件文件
-        FIRMWARE=$(find bin/targets -name "*squashfs-sysupgrade.bin" -o -name "*sysupgrade.bin" | head -1)
-        
-        if [ -z "$FIRMWARE" ]; then
-          echo "错误：未找到固件文件"
-          echo "查找结果:"
-          find bin/targets -type f -name "*.bin" | head -10
-          exit 1
-        fi
-        
-        SIZE=$(stat -c%s "$FIRMWARE")
-        MAX_SIZE=16777216  # 16MB = 16 * 1024 * 1024
-        
-        echo "固件文件: $FIRMWARE"
-        echo "固件大小: $SIZE 字节"
-        echo "最大限制: $MAX_SIZE 字节"
-        
-        if [ $SIZE -gt $MAX_SIZE ]; then
-          echo "错误：固件大小超过16MB限制"
-          exit 1
-        else
-          echo "✓ 固件大小检查通过"
-        fi
+      - name: Check firmware size
+        run: |
+          cd openwrt
+          
+          # 查找固件文件
+          FIRMWARE=$(find bin/targets -name "*squashfs-sysupgrade.bin" | head -1)
+          
+          if [ -z "$FIRMWARE" ]; then
+            echo "错误：未找到固件文件"
+            exit 1
+          fi
+          
+          SIZE=$(stat -c%s "$FIRMWARE")
+          MAX_SIZE=16777216  # 16MB
+          
+          echo "固件: $FIRMWARE"
+          echo "大小: $SIZE 字节"
+          echo "限制: $MAX_SIZE 字节 (16MB)"
+          
+          if [ $SIZE -gt $MAX_SIZE ]; then
+            echo "错误：固件超过16MB限制！"
+            exit 1
+          fi
+          
+          echo "固件大小检查通过"
 
-    - name: Upload firmware artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: immortalwrt-tp-wr703n-16m
-        path: |
-          openwrt/bin/targets/ath79/tiny/*.bin
-          openwrt/bin/targets/ath79/tiny/*.manifest
-        retention-days: 30
-
-    - name: Cleanup
-      if: always()
-      run: |
-        echo "清理大文件..."
-        find . -name "*.log" -size +50M -delete 2>/dev/null || true
-        echo "磁盘使用情况:"
-        df -h
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: tp-wr703n-immortalwrt
+          path: openwrt/bin/targets/ath79/tiny/
+          retention-days: 30
