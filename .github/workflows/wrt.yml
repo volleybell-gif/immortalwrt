@@ -17,7 +17,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180  # 延长到3小时
 
     steps:
       - name: Checkout repository
@@ -38,36 +38,55 @@ jobs:
 
       - name: Clone ImmortalWrt source
         run: |
+          rm -rf openwrt  # 清理旧目录
           git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
 
       - name: Configure build
         run: |
           cd openwrt
+          
+          # 彻底清理
+          rm -f .config .config.old
+          if [ -d "tmp" ]; then rm -rf tmp; fi
+          
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 创建配置文件内容
-          CONFIG_CONTENT="CONFIG_TARGET_ath79=y
-          CONFIG_TARGET_ath79_tiny=y
-          CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y
-          CONFIG_TARGET_ROOTFS_SQUASHFS=y
-          CONFIG_TARGET_ROOTFS_PARTSIZE=14
-          CONFIG_CCACHE=y
-          CONFIG_PACKAGE_wpad-basic=y
-          CONFIG_KERNEL_BUILD_USER=\"ImmortalWrt\"
-          CONFIG_KERNEL_BUILD_DOMAIN=\"immortalwrt.org\"
-          CONFIG_DEBUG_INFO=n
-          CONFIG_USE_MKLIBS=n
-          CONFIG_BUILD_LOG=y
-          # CONFIG_PACKAGE_luci is not set
-          # CONFIG_PACKAGE_luci-ssl is not set
-          # CONFIG_PACKAGE_firewall4 is not set
-          # CONFIG_PACKAGE_nftables is not set"
+          # 创建配置 - 确保只编译TP-WR703N
+          cat > .config << 'EOF'
+CONFIG_TARGET_ath79=y
+CONFIG_TARGET_ath79_tiny=y
+CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=14
+CONFIG_CCACHE=y
+CONFIG_PACKAGE_wpad-basic=y
+CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
+CONFIG_KERNEL_BUILD_DOMAIN="immortalwrt.org"
+CONFIG_DEBUG_INFO=n
+CONFIG_USE_MKLIBS=n
+CONFIG_BUILD_LOG=y
+CONFIG_TARGET_MULTI_PROFILE=n
+EOF
           
-          # 将配置内容写入文件
-          echo "$CONFIG_CONTENT" > .config
+          # 禁用不需要的包和其他设备
+          echo "# CONFIG_PACKAGE_luci is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-ssl is not set" >> .config
+          echo "# CONFIG_PACKAGE_firewall4 is not set" >> .config
+          echo "# CONFIG_PACKAGE_nftables is not set" >> .config
+          echo "# CONFIG_TARGET_ATH79_TINY_DEVICE_BUFFALO_WHAR301N is not set" >> .config
+          echo "# CONFIG_TARGET_ATH79_TINY_DEVICE_BUFFALO_WHARG301N is not set" >> .config
+          echo "# CONFIG_TARGET_ATH79_TINY_DEVICE_GL_INET_GL_AR150 is not set" >> .config
+          echo "# CONFIG_TARGET_ATH79_TINY_DEVICE_TP_LINK_TL_WR703N_V1 is not set" >> .config  # 禁用其他写法
           
           make defconfig
+          
+          # 验证配置
+          echo "=== 配置验证 ==="
+          echo "选择的设备:"
+          grep "CONFIG_TARGET_ath79_tiny_DEVICE" .config
+          echo "固件分区大小:"
+          grep "CONFIG_TARGET_ROOTFS_PARTSIZE" .config
 
       - name: Download dependencies
         run: |
@@ -84,9 +103,10 @@ jobs:
           CPU_CORES=$(nproc)
           echo "使用 $CPU_CORES 个CPU核心进行编译"
           
-          make -j$CPU_CORES V=s 2>&1 | tee build.log || {
+          # 编译TP-WR703N固件
+          make -j$CPU_CORES PROFILE=tp-link_tl-wr703n-v1 V=s 2>&1 | tee build.log || {
             echo "多线程编译失败，切换到单线程..."
-            make -j1 V=s 2>&1 | tee build-error.log
+            make -j1 PROFILE=tp-link_tl-wr703n-v1 V=s 2>&1 | tee build-error.log
             exit 1
           }
 
@@ -94,26 +114,29 @@ jobs:
         run: |
           cd openwrt
           
-          FIRMWARE=$(find bin/targets -name "*squashfs-sysupgrade.bin" | head -1)
+          # 查找TP-WR703N固件
+          FIRMWARE=$(find bin/targets -name "*703n*" -o -name "*wr703*" | head -1)
           
           if [ -z "$FIRMWARE" ]; then
-            echo "错误：未找到固件文件"
+            echo "错误：未找到TP-WR703N固件文件"
+            echo "当前文件列表:"
+            find bin/targets -name "*.bin" | head -10
             exit 1
           fi
           
           SIZE=$(stat -c%s "$FIRMWARE")
-          MAX_SIZE=16777216
+          MAX_SIZE=16777216  # 16MB
           
-          echo "固件: $FIRMWARE"
-          echo "大小: $SIZE 字节"
-          echo "限制: $MAX_SIZE 字节 (16MB)"
+          echo "找到固件: $FIRMWARE"
+          echo "固件大小: $SIZE 字节 ($(($SIZE/1024/1024))MB)"
+          echo "限制大小: $MAX_SIZE 字节 (16MB)"
           
           if [ $SIZE -gt $MAX_SIZE ]; then
             echo "错误：固件超过16MB限制！"
             exit 1
           fi
           
-          echo "固件大小检查通过"
+          echo "✓ 固件大小检查通过"
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
