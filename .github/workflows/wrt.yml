@@ -42,27 +42,25 @@ jobs:
       run: |
         cd immortalwrt
         
-        # 创建最小配置
-        cat > .config << 'EOF'
-CONFIG_TARGET_ar71xx=y
-CONFIG_TARGET_ar71xx_generic=y
-CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=14080
-CONFIG_TARGET_IMAGES_GZIP=y
-CONFIG_PACKAGE_base-files=y
-CONFIG_PACKAGE_busybox=y
-CONFIG_BUSYBOX_CUSTOM=y
-CONFIG_PACKAGE_dnsmasq=y
-CONFIG_PACKAGE_firewall=y
-CONFIG_PACKAGE_iptables=y
-CONFIG_PACKAGE_kmod-ath9k=y
-CONFIG_ATH_USER_REGD=y
-CONFIG_PACKAGE_dropbear=y
-CONFIG_PACKAGE_opkg=y
-CONFIG_PACKAGE_procd=y
-CONFIG_PACKAGE_uci=y
-EOF
+        # 使用多个echo命令代替多行字符串，避免YAML语法问题
+        echo "CONFIG_TARGET_ar71xx=y" > .config
+        echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
+        echo "CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14080" >> .config
+        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
+        echo "CONFIG_PACKAGE_base-files=y" >> .config
+        echo "CONFIG_PACKAGE_busybox=y" >> .config
+        echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
+        echo "CONFIG_PACKAGE_firewall=y" >> .config
+        echo "CONFIG_PACKAGE_iptables=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
+        echo "CONFIG_ATH_USER_REGD=y" >> .config
+        echo "CONFIG_PACKAGE_dropbear=y" >> .config
+        echo "CONFIG_PACKAGE_opkg=y" >> .config
+        echo "CONFIG_PACKAGE_procd=y" >> .config
+        echo "CONFIG_PACKAGE_uci=y" >> .config
 
         make defconfig
 
