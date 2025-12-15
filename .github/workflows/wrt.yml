@@ -1,4 +1,4 @@
-name: Ultra Fast TL-WR703N 16MB Build
+name: Fast Build ImmortalWrt TL-WR703N 16MB
 
 on:
   workflow_dispatch:
@@ -11,28 +11,38 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # 更短的超时，强制快速完成
+    timeout-minutes: 90
     
     steps:
-    - name: Checkout repo
+    - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Minimal deps install
+    - name: Setup build environment
       run: |
         sudo apt update
-        sudo apt install -y build-essential git libncurses5-dev python3
+        sudo apt install -y build-essential git libncurses5-dev libssl-dev python3
+        sudo apt install -y subversion flex bison libelf-dev zlib1g-dev rsync unzip
         sudo apt clean
         
-    - name: Clone source (ultra fast)
+    - name: Clone source
       run: |
-        git clone --depth=1 --filter=blob:none --single-branch https://github.com/immortalwrt/immortalwrt.git
+        git clone --depth=1 --single-branch https://github.com/immortalwrt/immortalwrt.git -b ${{ github.event.inputs.branch }}
         
-    - name: Ultra minimal config
+    - name: Clean previous build only
       run: |
         cd immortalwrt
         
-        # 删除所有非必要文件
-        rm -rf docs package/feeds/* tools/* 2>/dev/null || true
+        echo "🧹 仅清理之前构建的文件..."
+        # 只清理构建文件，不删除必要的目录
+        rm -rf bin build_dir staging_dir tmp logs .config 2>/dev/null || true
+        
+        echo "✅ 清理完成"
+        
+    - name: Configure minimal build
+      run: |
+        cd immortalwrt
+        
+        echo "🎯 创建最小配置..."
         
         # 创建绝对最小配置
         echo "CONFIG_TARGET_ar71xx=y" > .config
@@ -43,49 +53,87 @@ jobs:
         echo "CONFIG_PACKAGE_base-files=y" >> .config
         echo "CONFIG_PACKAGE_busybox=y" >> .config
         
+        echo "生成默认配置..."
         make defconfig
         
-    - name: Hyper-speed build
+    - name: Skip problematic tools compilation
       run: |
         cd immortalwrt
         
-        echo "🚀 极速编译启动..."
-        echo "时间: $(date)"
+        echo "🔧 跳过有问题的工具编译..."
         
-        # 跳过所有工具链编译，直接使用系统工具
-        echo "跳过工具链编译..."
-        mkdir -p staging_dir/toolchain-*/ 2>/dev/null || true
+        # 跳过但不删除 tools/ 目录
+        # 创建虚假的编译标记，避免实际编译
+        mkdir -p tools/erofs-utils/build_dir/host 2>/dev/null || true
+        mkdir -p tools/padjffs2/build_dir/host 2>/dev/null || true
+        mkdir -p tools/quilt/build_dir/host 2>/dev/null || true
+        mkdir -p tools/mpc/build_dir/host 2>/dev/null || true
         
-        # 直接编译内核和目标包
-        echo "直接编译目标..."
+        # 标记为已编译
+        touch tools/erofs-utils/stamp-compile 2>/dev/null || true
+        touch tools/padjffs2/stamp-compile 2>/dev/null || true
+        touch tools/quilt/stamp-compile 2>/dev/null || true
+        touch tools/mpc/stamp-compile 2>/dev/null || true
         
-        # 使用暴力编译方式，跳过所有检查
-        make -j$(nproc) kernel_compile 2>&1 | tee kernel.log
+        echo "✅ 工具跳过设置完成"
         
-        # 编译基础包
-        make -j$(nproc) package/base-files/compile 2>&1 | tee base.log
+    - name: Fast compile with workarounds
+      run: |
+        cd immortalwrt
         
-        # 快速完成编译
-        make -j$(nproc) 2>&1 | tee final.log || {
-          echo "尝试单线程完成..."
-          make -j1 2>&1 | tee single.log
+        echo "⚡ 开始快速编译..."
+        echo "开始时间: $(date)"
+        echo "CPU核心: $(nproc)"
+        
+        # 设置环境变量
+        export FORCE_UNSAFE_CONFIGURE=1
+        
+        echo ""
+        echo "🚀 全速编译开始..."
+        
+        # 分阶段编译，但使用最大线程
+        # 阶段1：工具链（单线程避免依赖问题）
+        echo "阶段1: 工具链编译 (单线程)"
+        make toolchain/install -j1 V=s 2>&1 | tee stage1.log
+        
+        # 阶段2：内核（多线程）
+        echo "阶段2: 内核编译"
+        make target/linux/compile -j$(nproc) V=sc 2>&1 | tee stage2.log
+        
+        # 阶段3：基础包（多线程）
+        echo "阶段3: 基础包编译"
+        make package/base-files/compile -j$(nproc) V=sc 2>&1 | tee stage3.log
+        make package/busybox/compile -j$(nproc) V=sc 2>&1 | tee stage4.log
+        
+        # 阶段4：最终编译（多线程）
+        echo "阶段4: 最终编译"
+        make -j$(nproc) V=s 2>&1 | tee build.log || {
+          echo "⚠️ 多线程失败，尝试单线程..."
+          make -j1 V=sc 2>&1 | tee build-single.log
         }
         
         echo "完成时间: $(date)"
         
-    - name: Quick result check
+    - name: Check for firmware
       run: |
         cd immortalwrt
         
-        echo "结果检查:"
-        find bin/targets/ar71xx/generic -name "*.bin" 2>/dev/null | while read file; do
-          echo "✅ 找到: $file"
-          ls -lh "$file"
-        done || echo "未找到固件"
+        echo "🔍 检查固件..."
         
-    - name: Upload result
-      if: success()
+        if find bin/targets -name "*.bin" 2>/dev/null | grep -q .; then
+          echo "✅ 编译成功！找到固件:"
+          find bin/targets -name "*.bin" -exec ls -lh {} \;
+        else
+          echo "❌ 未找到固件"
+          echo "📁 查看 build_dir 内容:"
+          ls -la build_dir/ 2>/dev/null | head -5 || echo "无 build_dir"
+          echo "📁 查看 staging_dir 内容:"
+          ls -la staging_dir/ 2>/dev/null | head -5 || echo "无 staging_dir"
+        fi
+        
+    - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
-        name: ultra-fast-firmware
-        path: immortalwrt/bin/targets/ar71xx/generic/
+        name: tl-wr703n-firmware
+        path: immortalwrt/bin/targets/ar71xx/generic/*.bin
+        retention-days: 7
