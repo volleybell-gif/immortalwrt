@@ -38,58 +38,48 @@ jobs:
         
         echo "🎯 强制设置为 MIPS/ar71xx 架构..."
         
-        # 创建正确的配置
-        cat > .config << 'EOF'
-# 目标架构 - 只选 ar71xx
-CONFIG_TARGET_ar71xx=y
-CONFIG_TARGET_ar71xx_generic=y
-CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y
-
-# 明确禁用 x86 和其他架构
-CONFIG_TARGET_x86=n
-CONFIG_TARGET_x86_64=n
-CONFIG_TARGET_armvirt=n
-CONFIG_TARGET_mediatek=n
-CONFIG_TARGET_ramips=n
-CONFIG_TARGET_bcm27xx=n
-CONFIG_TARGET_mxs=n
-CONFIG_TARGET_sunxi=n
-
-# 16MB闪存配置
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=14080
-CONFIG_TARGET_IMAGES_GZIP=y
-
-# 基础系统
-CONFIG_PACKAGE_base-files=y
-CONFIG_PACKAGE_busybox=y
-CONFIG_BUSYBOX_CUSTOM=y
-
-# 核心库
-CONFIG_PACKAGE_libc=y
-CONFIG_PACKAGE_libgcc=y
-CONFIG_PACKAGE_libpthread=y
-
-# 系统服务
-CONFIG_PACKAGE_dropbear=y
-CONFIG_PACKAGE_opkg=y
-CONFIG_PACKAGE_procd=y
-
-# 网络基础
-CONFIG_PACKAGE_dnsmasq=y
-CONFIG_PACKAGE_firewall=y
-CONFIG_PACKAGE_iptables=y
-
-# 无线驱动
-CONFIG_PACKAGE_kmod-ath9k=y
-CONFIG_ATH_USER_REGD=y
-
-# 禁用不必要的包
-CONFIG_PACKAGE_emortal_default-settings=n
-CONFIG_PACKAGE_luci=n
-CONFIG_PACKAGE_uhttpd=n
-CONFIG_PACKAGE_grub2=n
-EOF
+        # 使用多个echo命令，避免多行字符串问题
+        echo "# 目标架构 - 只选 ar71xx" > .config
+        echo "CONFIG_TARGET_ar71xx=y" >> .config
+        echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
+        echo "CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
+        echo "# 明确禁用 x86 和其他架构" >> .config
+        echo "CONFIG_TARGET_x86=n" >> .config
+        echo "CONFIG_TARGET_x86_64=n" >> .config
+        echo "CONFIG_TARGET_armvirt=n" >> .config
+        echo "CONFIG_TARGET_mediatek=n" >> .config
+        echo "CONFIG_TARGET_ramips=n" >> .config
+        echo "CONFIG_TARGET_bcm27xx=n" >> .config
+        echo "CONFIG_TARGET_mxs=n" >> .config
+        echo "CONFIG_TARGET_sunxi=n" >> .config
+        echo "# 16MB闪存配置" >> .config
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14080" >> .config
+        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
+        echo "# 基础系统" >> .config
+        echo "CONFIG_PACKAGE_base-files=y" >> .config
+        echo "CONFIG_PACKAGE_busybox=y" >> .config
+        echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
+        echo "# 核心库" >> .config
+        echo "CONFIG_PACKAGE_libc=y" >> .config
+        echo "CONFIG_PACKAGE_libgcc=y" >> .config
+        echo "CONFIG_PACKAGE_libpthread=y" >> .config
+        echo "# 系统服务" >> .config
+        echo "CONFIG_PACKAGE_dropbear=y" >> .config
+        echo "CONFIG_PACKAGE_opkg=y" >> .config
+        echo "CONFIG_PACKAGE_procd=y" >> .config
+        echo "# 网络基础" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
+        echo "CONFIG_PACKAGE_firewall=y" >> .config
+        echo "CONFIG_PACKAGE_iptables=y" >> .config
+        echo "# 无线驱动" >> .config
+        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
+        echo "CONFIG_ATH_USER_REGD=y" >> .config
+        echo "# 禁用不必要的包" >> .config
+        echo "CONFIG_PACKAGE_emortal_default-settings=n" >> .config
+        echo "CONFIG_PACKAGE_luci=n" >> .config
+        echo "CONFIG_PACKAGE_uhttpd=n" >> .config
+        echo "CONFIG_PACKAGE_grub2=n" >> .config
         
         echo "生成默认配置..."
         make defconfig
