@@ -1,166 +1,219 @@
-name: Stable TL-WR703N 16MB Build
+name: Build ImmortalWrt 21.02 for WR703N
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # 手动触发
+    inputs:
+      clean_build:
+        description: 'Clean build (no cache)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-immortalwrt.yml'
+      - 'config/**'
+      - 'feeds.conf'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-21.02
+  TARGET: ath79
+  SUBTARGET: tiny
+  PROFILE: tl-wr703n-v1
+  IMAGE_PREFIX: immortalwrt-21.02-ath79-tiny-tl-wr703n-v1
+  BUILDER_IMAGE: immortalwrt/imagebuilder:21.02-ath79-tiny
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    
+    strategy:
+      matrix:
+        make_jobs: [8]  # 根据GitHub Actions runner配置，建议使用4-8线程
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Setup build environment
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+        fetch-depth: 0
+    
+    - name: Setup Build Environment
       run: |
-        sudo apt update
-        sudo apt install -y build-essential git libncurses5-dev libssl-dev python3
-        sudo apt install -y subversion flex bison libelf-dev zlib1g-dev rsync unzip
-        sudo apt clean
-        
-    - name: Clone fresh source
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          ccache \
+          ecj \
+          fastjar \
+          file \
+          g++ \
+          gawk \
+          gettext \
+          git \
+          git-lfs \
+          java-propose-classpath \
+          libelf-dev \
+          libncurses5-dev \
+          libncursesw5-dev \
+          libssl-dev \
+          python3 \
+          python3-distutils \
+          python3-setuptools \
+          rsync \
+          subversion \
+          swig \
+          time \
+          unzip \
+          wget \
+          xsltproc \
+          zlib1g-dev
+        sudo apt-get clean
+    
+    - name: Setup ccache
+      uses: actions/cache@v3
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-ccache-${{ hashFiles('feeds.conf', '.config') }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-
+    
+    - name: Cache build downloads
+      uses: actions/cache@v3
+      with:
+        path: ./dl
+        key: ${{ runner.os }}-dl-${{ hashFiles('feeds.conf') }}
+        restore-keys: |
+          ${{ runner.os }}-dl-
+    
+    - name: Clone ImmortalWrt source
       run: |
-        # 完全重新开始
-        rm -rf immortalwrt 2>/dev/null || true
-        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git
-        
-    - name: Update and install feeds (关键步骤)
-      run: |
-        cd immortalwrt
-        
-        echo "🔄 更新feeds..."
-        
-        # 检查feeds配置文件是否存在
-        if [ ! -f "feeds.conf.default" ]; then
-          echo "⚠️ feeds.conf.default 不存在，尝试恢复..."
-          # 从git恢复文件
-          git checkout feeds.conf.default 2>/dev/null || {
-            echo "❌ 无法恢复feeds.conf.default"
-            exit 1
-          }
+        git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
+        cd openwrt
+        if [ -f ../feeds.conf ]; then
+          cp ../feeds.conf .
         fi
+    
+    - name: Copy configuration
+      run: |
+        if [ -d config ]; then
+          cp -rf config/* openwrt/
+        fi
+    
+    - name: Prepare configuration for WR703N 16M
+      run: |
+        cd openwrt
         
-        echo "正在更新feeds..."
+        # 更新 feeds
         ./scripts/feeds update -a
-        
-        echo "安装feeds..."
         ./scripts/feeds install -a
         
-        echo "✅ Feeds 更新完成"
+        # 创建基础配置
+        cat > .config << 'EOF'
+CONFIG_TARGET_ath79=y
+CONFIG_TARGET_ATH79_TINY=y
+CONFIG_TARGET_ATH79_TINY_DEVICE_TL_WR703N_V1=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=512
+CONFIG_TARGET_KERNEL_PARTSIZE=4
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_IMAGES_GZIP=y
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-base=y
+CONFIG_PACKAGE_luci-compat=y
+CONFIG_PACKAGE_luci-mod-admin-full=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_luci-app-firewall=y
+CONFIG_PACKAGE_luci-app-opkg=y
+CONFIG_PACKAGE_ipv6helper=y
+CONFIG_PACKAGE_6in4=y
+CONFIG_PACKAGE_6rd=y
+CONFIG_PACKAGE_6to4=y
+CONFIG_BINARY_FOLDER=""
+CONFIG_DOWNLOAD_FOLDER=""
+CONFIG_LOCALMIRROR=""
+EOF
         
-    - name: Configure minimal build
+        # 启用额外的包（根据需要调整）
+        echo "CONFIG_PACKAGE_luci-proto-ipv6=y" >> .config
+        echo "CONFIG_PACKAGE_luci-proto-ppp=y" >> .config
+        echo "CONFIG_PACKAGE_iptables-mod-extra=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-fs-vfat=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb-storage=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb2=y" >> .config
+        echo "CONFIG_PACKAGE_block-mount=y" >> .config
+        echo "CONFIG_PACKAGE_fdisk=y" >> .config
+        
+        # 16MB闪存优化
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=15360" >> .config
+        echo "# CONFIG_PACKAGE_luci-app-ddns is not set" >> .config
+        echo "# CONFIG_PACKAGE_luci-app-upnp is not set" >> .config
+        
+        # 启用 ccache
+        echo "CONFIG_CCACHE=y" >> .config
+        
+        # 启用并行编译
+        echo "CONFIG_BUILD_LOG=y" >> .config
+    
+    - name: Finalize configuration
       run: |
-        cd immortalwrt
-        
-        echo "🎯 创建最小配置..."
-        
-        # 只清理构建目录，不要删除配置文件
-        rm -rf bin build_dir staging_dir tmp logs .config 2>/dev/null || true
-        
-        # 创建最小配置
-        echo "CONFIG_TARGET_ar71xx=y" > .config
-        echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
-        echo "CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14080" >> .config
-        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
-        echo "CONFIG_PACKAGE_base-files=y" >> .config
-        echo "CONFIG_PACKAGE_busybox=y" >> .config
-        echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
-        
-        # 禁用所有其他架构
-        echo "# 禁用x86和其他架构" >> .config
-        echo "# CONFIG_TARGET_x86 is not set" >> .config
-        echo "# CONFIG_TARGET_x86_64 is not set" >> .config
-        
-        echo "生成默认配置..."
+        cd openwrt
         make defconfig
         
-        # 确保只编译ar71xx
-        sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config 2>/dev/null || true
-        sed -i 's/CONFIG_TARGET_x86_64=y/# CONFIG_TARGET_x86_64 is not set/' .config 2>/dev/null || true
-        
-        echo "✅ 配置完成"
-        
-    - name: Build with optimization
+        # 显示配置摘要
+        echo "=== Configuration Summary ==="
+        grep -E "CONFIG_TARGET|CONFIG_PACKAGE|CONFIG_CCACHE" .config | head -30
+    
+    - name: Build firmware
       run: |
-        cd immortalwrt
+        cd openwrt
         
-        echo "🔨 开始编译..."
-        echo "开始时间: $(date)"
-        echo "CPU核心: $(nproc)"
-        
-        # 设置环境变量
+        # 设置编译环境变量
         export FORCE_UNSAFE_CONFIGURE=1
+        export CCACHE_DIR=~/.ccache
+        export CCACHE_MAXSIZE=5G
+        export CCACHE_COMPRESS=1
         
-        # 编译步骤
-        echo "1. 编译工具链..."
-        make toolchain/install -j$(nproc) 2>&1 | tee toolchain.log || {
-          echo "⚠️ 工具链编译出现问题，继续..."
-        }
+        # 使用多线程编译
+        MAKE_ARGS="-j${{ matrix.make_jobs }} V=s"
         
-        echo "2. 编译内核..."
-        make target/linux/compile -j$(nproc) 2>&1 | tee kernel.log
-        
-        echo "3. 编译基础包..."
-        make package/base-files/compile -j$(nproc) 2>&1 | tee base.log
-        make package/busybox/compile -j$(nproc) 2>&1 | tee busybox.log
-        
-        echo "4. 最终编译..."
-        make -j$(nproc) 2>&1 | tee build.log || {
-          echo "⚠️ 多线程失败，尝试单线程..."
-          make -j1 2>&1 | tee single.log
-        }
-        
-        echo "完成时间: $(date)"
-        
-    - name: Check results
-      run: |
-        cd immortalwrt
-        
-        echo "📊 编译结果检查..."
-        
-        # 检查是否有固件
-        if find bin/targets -name "*.bin" 2>/dev/null | grep -q .; then
-          echo "✅ 编译成功！找到固件:"
-          find bin/targets -name "*.bin" -exec ls -lh {} \;
-          
-          # 特别检查 ar71xx 固件
-          if ls bin/targets/ar71xx/generic/*.bin 1>/dev/null 2>&1; then
-            echo "🎯 TL-WR703N 16MB 固件:"
-            ls -lh bin/targets/ar71xx/generic/*.bin | head -3
-            
-            # 检查固件类型
-            for f in bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin 2>/dev/null; do
-              if [ -f "$f" ]; then
-                echo "🎉 找到 squashfs-sysupgrade 固件"
-                size=$(stat -c%s "$f")
-                echo "📏 大小: $((size / 1024 / 1024))MB ($((size / 1024))KB)"
-              fi
-            done
-          fi
-        else
-          echo "❌ 未找到固件文件"
-          echo "📁 目录结构:"
-          ls -la bin/ 2>/dev/null || echo "bin/ 目录不存在"
+        # 根据输入决定是否清理
+        if [ "${{ github.event.inputs.clean_build }}" = "true" ]; then
+          echo "Performing clean build..."
+          make dirclean
+          rm -rf tmp/
+          rm -rf build_dir/
+          rm -rf staging_dir/
         fi
         
-    - name: Upload firmware
-      if: success()
-      uses: actions/upload-artifact@v4
-      with:
-        name: tl-wr703n-16mb-firmware
-        path: |
-          immortalwrt/bin/targets/ar71xx/generic/*.bin
-        retention-days: 7
+        # 下载依赖
+        make download $MAKE_ARGS || make download $MAKE_ARGS
         
+        # 编译固件
+        time make $MAKE_ARGS
+        
+        # 检查生成的文件
+        echo "=== Generated files ==="
+        find bin/targets -name "*squashfs-sysupgrade*" -type f | xargs ls -lh
+    
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: immortalwrt-wr703n-16m
+        path: openwrt/bin/targets/ath79/tiny/
+        retention-days: 7
+    
     - name: Upload build logs
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: build-logs
         path: |
-          immortalwrt/build.log
-          immortalwrt/single.log
-        retention-days: 7
+          openwrt/logs/
+          openwrt/build.log
+        retention-days: 3
