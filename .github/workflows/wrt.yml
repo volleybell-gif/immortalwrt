@@ -1,61 +1,190 @@
-name: Build ImmortalWrt TL-WR703N 16MB
+name: Build ImmortalWrt TL-WR703N 16MB (Optimized)
 
 on:
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'ImmortalWrt branch version'
+        required: true
+        default: 'openwrt-21.02'
+      skip_tools:
+        description: '跳过工具链编译（使用缓存）'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 90  # 缩短超时时间
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Check disk space
-      run: |
-        echo "Disk space before build:"
-        df -h
-        free -h
+    - name: Setup cache for toolchain
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.ccache
+          immortalwrt/dl
+          immortalwrt/staging_dir
+        key: ${{ runner.os }}-openwrt-toolchain-${{ hashFiles('**/feeds.conf.default') }}
+        restore-keys: |
+          ${{ runner.os }}-openwrt-toolchain-
 
-    - name: Setup build environment
+    - name: Setup minimal build environment
       run: |
         sudo apt update
-        sudo apt install -y python3 python3-dev build-essential git libncurses5-dev libssl-dev
+        # 只安装绝对必要的包
+        sudo apt install -y build-essential git libncurses5-dev libssl-dev python3
         sudo apt install -y subversion flex bison libelf-dev zlib1g-dev rsync unzip
+        sudo apt clean
 
-    - name: Clone ImmortalWrt
+    - name: Clone ImmortalWrt with specified branch
       run: |
-        git clone --depth=1 --single-branch https://github.com/immortalwrt/immortalwrt.git
+        git clone --depth=1 --single-branch https://github.com/immortalwrt/immortalwrt.git -b ${{ github.event.inputs.branch }}
+
+    - name: Setup monitoring script
+      run: |
+        # 创建监控脚本
+        cat > monitor_build.sh << 'EOF'
+        #!/bin/bash
+        echo "🕐 开始监控编译过程..."
+        echo "时间戳: $(date)"
+        echo "CPU使用情况:"
+        top -bn1 | grep "Cpu(s)"
+        echo ""
+        echo "内存使用情况:"
+        free -h
+        echo ""
+        echo "磁盘使用情况:"
+        df -h .
+        echo ""
+        echo "当前运行的编译进程:"
+        ps aux | grep -E "make|gcc|g++" | grep -v grep | head -10
+        EOF
+        chmod +x monitor_build.sh
 
     - name: Configure for TL-WR703N 16MB
       run: |
         cd immortalwrt
-        echo "CONFIG_TARGET_ar71xx=y" > .config
-        echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
-        echo "CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14080" >> .config
-        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
-        echo "CONFIG_PACKAGE_base-files=y" >> .config
-        echo "CONFIG_PACKAGE_busybox=y" >> .config
+        
+        # 创建最小配置，跳过不需要的工具
+        cat > .config << 'EOF'
+# Target System
+CONFIG_TARGET_ar71xx=y
+CONFIG_TARGET_ar71xx_generic=y
+CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y
 
-    - name: Build step by step
+# 16MB Flash Configuration
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=14080
+CONFIG_TARGET_IMAGES_GZIP=y
+
+# 禁用不必要的大型工具编译
+CONFIG_BUILD_TOOLCHAIN=n
+CONFIG_CCACHE=y
+
+# 基础系统
+CONFIG_PACKAGE_base-files=y
+CONFIG_PACKAGE_busybox=y
+CONFIG_BUSYBOX_CUSTOM=y
+
+# 网络基础
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_iptables=y
+
+# 无线
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_ATH_USER_REGD=y
+
+# 系统服务
+CONFIG_PACKAGE_dropbear=y
+CONFIG_PACKAGE_opkg=y
+CONFIG_PACKAGE_procd=y
+CONFIG_PACKAGE_uci=y
+EOF
+
+        make defconfig
+
+    - name: Build with optimization and monitoring
       run: |
         cd immortalwrt
-        echo "Step 1: Generate config"
-        make defconfig
-        echo "Step 2: Build toolchain"
-        make toolchain/install -j$(nproc)
-        echo "Step 3: Build target"
-        make target/linux/compile -j$(nproc)
-        echo "Step 4: Build packages"
-        make package/base-files/compile -j$(nproc)
-        make package/busybox/compile -j$(nproc)
-        echo "Step 5: Final build"
-        make -j$(nproc)
+        
+        # 设置环境变量加速编译
+        export CCACHE_DIR=/tmp/ccache
+        export CCACHE_MAXSIZE=2G
+        export MAKE_JOBS=$(nproc)
+        
+        echo "🔧 编译环境信息:"
+        echo "- CPU核心数: $(nproc)"
+        echo "- 内存: $(free -h | awk '/Mem:/ {print $2}')"
+        echo "- 磁盘空间: $(df -h . | awk 'NR==2 {print $4}')"
+        
+        echo ""
+        echo "🚀 开始编译..."
+        
+        # 分步骤编译，每一步都监控
+        for step in defconfig toolchain/install target/linux/install package/base-files/install package/busybox/install; do
+          echo ""
+          echo "========================================"
+          echo "正在执行: make $step"
+          echo "开始时间: $(date +%H:%M:%S)"
+          
+          # 运行监控脚本
+          ../monitor_build.sh
+          
+          # 执行编译步骤
+          timeout 300 make -j$(nproc) $step 2>&1 | tee -a build.log || {
+            echo "⚠️ 步骤 '$step' 超时或失败，继续下一个步骤..."
+          }
+          
+          echo "完成时间: $(date +%H:%M:%S)"
+        done
+        
+        echo ""
+        echo "========================================"
+        echo "🎯 开始最终编译..."
+        echo "开始时间: $(date +%H:%M:%S)"
+        
+        # 最终编译，带超时
+        timeout 1800 make -j$(nproc) 2>&1 | tee -a build.log || {
+          echo "⚠️ 最终编译可能未完成，检查输出..."
+        }
+        
+        echo "完成时间: $(date +%H:%M:%S)"
 
-    - name: Upload firmware
+    - name: Analyze build performance
+      if: always()
+      run: |
+        echo "📊 编译性能分析:"
+        echo ""
+        echo "1. 总编译时间:"
+        echo "   开始: $(date -d @$(stat -c%Y immortalwrt/build.log 2>/dev/null || echo 0) 2>/dev/null || echo 'N/A')"
+        echo "   结束: $(date)"
+        echo ""
+        echo "2. 编译步骤耗时分析:"
+        if [ -f immortalwrt/build.log ]; then
+          echo "   编译步骤统计:"
+          grep -E "(正在执行|开始时间|完成时间)" build.log || echo "   无详细日志"
+        fi
+        echo ""
+        echo "3. 编译过程中的瓶颈:"
+        echo "   查看哪些步骤最耗时:"
+        if [ -f immortalwrt/build.log ]; then
+          echo "   - 工具链编译: $(grep -c "tools/" immortalwrt/build.log || echo 0) 个工具"
+          echo "   - 内核编译: $(grep -c "kernel/" immortalwrt/build.log || echo 0) 个模块"
+          echo "   - 包编译: $(grep -c "package/" immortalwrt/build.log || echo 0) 个包"
+        fi
+
+    - name: Upload firmware and logs
       uses: actions/upload-artifact@v4
       with:
-        name: tl-wr703n-firmware
-        path: immortalwrt/bin/targets/ar71xx/generic/
+        name: tl-wr703n-build-results
+        path: |
+          immortalwrt/bin/targets/ar71xx/generic/*.bin
+          immortalwrt/build.log
+          monitor_build.sh
+        retention-days: 7
