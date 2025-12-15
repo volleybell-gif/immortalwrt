@@ -1,3 +1,4 @@
+
 name: Build ImmortalWrt for TP-WR703N
 
 on:
@@ -34,15 +35,16 @@ jobs:
           openwrt/dl
           openwrt/build_dir
           openwrt/staging_dir
-        key: ${{ runner.os }}-immortalwrt-${{ env.REPO_BRANCH }}
+          openwrt/tmp
+        key: ${{ runner.os }}-immortalwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('**/.config') }}
         restore-keys: |
-          ${{ runner.os }}-immortalwrt-
-
+          ${{ runner.os }}-immortalwrt-${{ env.REPO_BRANCH }}-
+          
     - name: Checkout ImmortalWrt source
       run: |
         git clone -b $REPO_BRANCH --single-branch --filter=blob:none $REPO_URL openwrt
 
-    - name: Setup feeds and configuration
+    - name: Prepare build configuration
       run: |
         cd openwrt
         ./scripts/feeds update -a
@@ -51,16 +53,17 @@ jobs:
         echo "CONFIG_TARGET_ath79=y" >> .config
         echo "CONFIG_TARGET_ath79_tiny=y" >> .config
         echo "CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=512" >> .config
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=128" >> .config
         echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
         echo "CONFIG_CCACHE=y" >> .config
+        echo "CONFIG_BUILD_LOG=y" >> .config
         make defconfig
 
     - name: Build firmware with error handling
       run: |
         cd openwrt
         CPU_CORES=$(nproc)
-        # 第一次尝试多线程编译
+        echo "使用 $CPU_CORES 个CPU核心进行多线程编译"
         make -j$CPU_CORES || {
           echo "多线程编译失败，切换到详细单线程模式..."
           make -j1 V=s
