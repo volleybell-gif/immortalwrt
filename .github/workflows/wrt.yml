@@ -1,13 +1,13 @@
 name: Build ImmortalWrt for TP-WR703N (16M)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # 手动触发
   push:
-    branches: [main]
+    branches: [ main ]
     paths:
       - '.github/workflows/build.yml'
   schedule:
-    - cron: '0 2 * * 0'
+    - cron: '0 2 * * 0'  # 每周日凌晨2点自动编译
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -52,11 +52,33 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update -y
-        sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
-          gettext git java-propose-classpath libelf-dev libncurses5-dev \
-          libncursesw5-dev libssl-dev python3 python2.7-dev python3-pip \
-          python3-setuptools python3-dev rsync subversion swig time xsltproc \
-          zlib1g-dev unzip wget upx-ucl
+        sudo apt-get install -y \
+          build-essential \
+          ccache \
+          ecj \
+          fastjar \
+          file \
+          g++ \
+          gawk \
+          gettext \
+          git \
+          libelf-dev \
+          libncurses5-dev \
+          libncursesw5-dev \
+          libssl-dev \
+          python3 \
+          python3-pip \
+          python3-setuptools \
+          python3-dev \
+          rsync \
+          subversion \
+          swig \
+          time \
+          xsltproc \
+          zlib1g-dev \
+          unzip \
+          wget \
+          upx-ucl
 
     - name: Clone ImmortalWrt source
       run: |
@@ -77,44 +99,38 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-        # 设置目标平台
-        cat > .config << 'EOF'
+        # 创建默认配置
+        cat << 'EOF' > .config
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_tiny=y
 CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_ROOTFS_PARTSIZE=14
 CONFIG_CCACHE=y
-# 禁用大体积包
 # CONFIG_PACKAGE_luci is not set
 # CONFIG_PACKAGE_luci-ssl is not set
 # CONFIG_PACKAGE_wpad-basic-wolfssl is not set
 # CONFIG_PACKAGE_wpad-basic-openssl is not set
 CONFIG_PACKAGE_wpad-basic=y
 # CONFIG_PACKAGE_firewall4 is not set
-# CONFIG_PACKAGE_nftables is not set
-# 精简内核
 CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
 CONFIG_KERNEL_BUILD_DOMAIN="immortalwrt.org"
-# 移除调试信息减小体积
 CONFIG_DEBUG_INFO=n
 CONFIG_USE_MKLIBS=n
-# 优化编译
 CONFIG_CCACHE_DIR="/tmp/ccache"
-CONFIG_CCACHE_BIN="/usr/bin/ccache"
 CONFIG_BUILD_LOG=y
 EOF
         
-        # 应用配置并检查
+        # 应用配置
         make defconfig
-        echo "=== 配置文件内容 ==="
-        head -50 .config
 
     - name: Download pre-compiled files
       run: |
         cd openwrt
         make download -j$(nproc)
-        find dl -size +1024M -exec rm -f {} \;
+        
+        # 清理过大的下载文件
+        find dl -size +500M -exec rm -f {} \; 2>/dev/null || true
 
     - name: Build firmware
       run: |
@@ -122,63 +138,68 @@ EOF
         
         # 设置ccache
         ccache --max-size=2G
-        ccache --set-config=cache_dir=/tmp/ccache
         export CCACHE_DIR="/tmp/ccache"
         export CCACHE_BASEDIR="$(pwd)"
         
         # 获取CPU核心数
-        CPU_CORES=$(($(nproc) - 2))
-        if [ $CPU_CORES -lt 1 ]; then
-          CPU_CORES=1
-        fi
+        CPU_CORES=$(nproc)
+        echo "CPU核心数: $CPU_CORES"
         
         echo "========================================="
-        echo "开始编译，使用 ${CPU_CORES} 线程"
-        echo "CCache 状态:"
+        echo "开始编译..."
+        echo "CCache状态:"
         ccache -s
         echo "========================================="
         
-        # 并行编译内核
-        make -j${CPU_CORES} tools/install
-        make -j${CPU_CORES} toolchain/install
+        # 编译工具链
+        make tools/compile -j$CPU_CORES || make tools/compile -j1 V=s
         
-        # 编译固件 - 移除了有问题的 time 命令
-        make -j${CPU_CORES} V=s 2>&1 | tee build.log || {
+        # 编译工具
+        make toolchain/compile -j$CPU_CORES || make toolchain/compile -j1 V=s
+        
+        # 编译目标文件
+        make target/compile -j$CPU_CORES || make target/compile -j1 V=s
+        
+        # 编译固件
+        make -j$CPU_CORES V=s 2>&1 | tee build.log || {
           echo "多线程编译失败，尝试单线程编译..."
           make -j1 V=s 2>&1 | tee build-error.log
           exit 1
         }
         
         echo "========================================="
-        echo "编译完成，检查固件大小..."
-        find bin/targets -name "*.bin" -o -name "*.img" | xargs ls -lh
+        echo "编译完成"
         echo "========================================="
 
     - name: Check firmware size
       run: |
         cd openwrt
-        FIRMWARE=$(find bin/targets -name "*squashfs-sysupgrade*.bin" -o -name "*sysupgrade*.bin" | head -1)
+        
+        # 查找固件文件
+        FIRMWARE=$(find bin/targets -name "*squashfs-sysupgrade.bin" -o -name "*sysupgrade.bin" | head -1)
         
         if [ -z "$FIRMWARE" ]; then
-          echo "错误：未找到固件文件！"
-          ls -la bin/targets/
+          echo "错误：未找到固件文件"
+          echo "查找结果:"
+          find bin/targets -type f -name "*.bin" | head -10
           exit 1
         fi
         
         SIZE=$(stat -c%s "$FIRMWARE")
-        MAX_SIZE=16777216
+        MAX_SIZE=16777216  # 16MB = 16 * 1024 * 1024
         
         echo "固件文件: $FIRMWARE"
-        echo "固件大小: $SIZE 字节 ($(($SIZE/1024/1024)) MB)"
+        echo "固件大小: $SIZE 字节"
+        echo "最大限制: $MAX_SIZE 字节"
         
         if [ $SIZE -gt $MAX_SIZE ]; then
-          echo "错误：固件大小超过16MB限制！"
+          echo "错误：固件大小超过16MB限制"
           exit 1
         else
           echo "✓ 固件大小检查通过"
         fi
 
-    - name: Upload firmware
+    - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-tp-wr703n-16m
@@ -187,8 +208,10 @@ EOF
           openwrt/bin/targets/ath79/tiny/*.manifest
         retention-days: 30
 
-    - name: Cleanup large files
+    - name: Cleanup
       if: always()
       run: |
-        find . -name "*.log" -size +100M -delete 2>/dev/null || true
-        du -sh ./* 2>/dev/null | sort -hr | head -10 || true
+        echo "清理大文件..."
+        find . -name "*.log" -size +50M -delete 2>/dev/null || true
+        echo "磁盘使用情况:"
+        df -h
