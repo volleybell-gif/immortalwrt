@@ -21,9 +21,6 @@ on:
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: openwrt-21.02
-  TARGET: ath79
-  SUBTARGET: tiny
-  PROFILE: tl-wr703n-v1
 
 jobs:
   build:
@@ -75,14 +72,6 @@ jobs:
         restore-keys: |
           ccache-
 
-    - name: Cache download directory
-      uses: actions/cache@v3
-      with:
-        path: dl
-        key: dl-cache-${{ hashFiles('feeds.conf', 'Makefile') }}
-        restore-keys: |
-          dl-cache-
-
     - name: Clone ImmortalWrt source
       run: |
         git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
@@ -101,7 +90,6 @@ jobs:
       run: |
         cd openwrt
         
-        # 生成基础配置
         cat > .config << 'EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ATH79_TINY=y
@@ -132,14 +120,10 @@ CONFIG_PACKAGE_kmod-fs-vfat=y
 CONFIG_PACKAGE_block-mount=y
 CONFIG_PACKAGE_fdisk=y
 CONFIG_PACKAGE_e2fsprogs=y
-CONFIG_BINARY_FOLDER=""
-CONFIG_DOWNLOAD_FOLDER=""
-CONFIG_LOCALMIRROR=""
 CONFIG_CCACHE=y
 CONFIG_BUILD_LOG=y
 EOF
-
-        # 应用配置
+        
         make defconfig
 
     - name: Download packages
@@ -152,48 +136,29 @@ EOF
         CLEAN_BUILD: ${{ github.event.inputs.clean_build }}
       run: |
         cd openwrt
-        
-        # 设置环境变量
         export FORCE_UNSAFE_CONFIGURE=1
         export CCACHE_DIR="$HOME/.ccache"
         export CCACHE_MAXSIZE=5G
         export CCACHE_COMPRESS=1
         export CCACHE_COMPRESSLEVEL=6
         
-        # 清理或使用缓存构建
         if [ "$CLEAN_BUILD" = "true" ]; then
           echo "Performing clean build..."
           make clean
         fi
         
-        # 开始编译（使用所有CPU核心）
         time make -j$(nproc) V=s
 
     - name: List generated files
       run: |
         cd openwrt
-        echo "=== Generated firmware files ==="
+        echo "Generated firmware files:"
         find bin/targets -type f -name "*.bin" | xargs ls -lh
-        echo ""
-        echo "=== Sysupgrade files ==="
-        find bin/targets -type f -name "*sysupgrade*.bin" | xargs ls -lh
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v3
       if: success()
       with:
         name: immortalwrt-21.02-wr703n-16m
-        path: |
-          openwrt/bin/targets/ath79/tiny/*.bin
-          openwrt/bin/targets/ath79/tiny/*.manifest
+        path: openwrt/bin/targets/ath79/tiny/*.bin
         retention-days: 7
-
-    - name: Upload build logs on failure
-      if: failure()
-      uses: actions/upload-artifact@v3
-      with:
-        name: build-logs
-        path: |
-          openwrt/logs/
-          openwrt/build.log
-        retention-days: 3
