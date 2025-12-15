@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - '.github/workflows/build.yml'
+      - .github/workflows/build.yml
   schedule:
     - cron: '0 2 * * 0'
 
@@ -27,41 +27,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ github.sha }}
+          key: ccache-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-ccache-
+            ccache-
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            ccache \
-            ecj \
-            fastjar \
-            file \
-            g++ \
-            gawk \
-            gettext \
-            git \
-            java-propose-classpath \
-            libelf-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libssl-dev \
-            python3 \
-            python3-pip \
-            python3-setuptools \
-            python3-dev \
-            rsync \
-            subversion \
-            swig \
-            time \
-            xsltproc \
-            zlib1g-dev \
-            unzip \
-            wget \
-            upx-ucl
+          sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk gettext git java-propose-classpath libelf-dev libncurses5-dev libncursesw5-dev libssl-dev python3 python3-pip python3-setuptools python3-dev rsync subversion swig time xsltproc zlib1g-dev unzip wget upx-ucl
 
       - name: Clone ImmortalWrt source
         run: |
@@ -73,27 +46,26 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 创建最小配置 - 注意EOF的缩进问题
-          cat > .config << 'EOF'
-CONFIG_TARGET_ath79=y
-CONFIG_TARGET_ath79_tiny=y
-CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=14
-CONFIG_CCACHE=y
-CONFIG_PACKAGE_wpad-basic=y
-CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
-CONFIG_KERNEL_BUILD_DOMAIN="immortalwrt.org"
-CONFIG_DEBUG_INFO=n
-CONFIG_USE_MKLIBS=n
-CONFIG_BUILD_LOG=y
-EOF
+          # 创建配置文件内容
+          CONFIG_CONTENT="CONFIG_TARGET_ath79=y
+          CONFIG_TARGET_ath79_tiny=y
+          CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+          CONFIG_TARGET_ROOTFS_PARTSIZE=14
+          CONFIG_CCACHE=y
+          CONFIG_PACKAGE_wpad-basic=y
+          CONFIG_KERNEL_BUILD_USER=\"ImmortalWrt\"
+          CONFIG_KERNEL_BUILD_DOMAIN=\"immortalwrt.org\"
+          CONFIG_DEBUG_INFO=n
+          CONFIG_USE_MKLIBS=n
+          CONFIG_BUILD_LOG=y
+          # CONFIG_PACKAGE_luci is not set
+          # CONFIG_PACKAGE_luci-ssl is not set
+          # CONFIG_PACKAGE_firewall4 is not set
+          # CONFIG_PACKAGE_nftables is not set"
           
-          # 禁用不需要的包
-          echo "# CONFIG_PACKAGE_luci is not set" >> .config
-          echo "# CONFIG_PACKAGE_luci-ssl is not set" >> .config
-          echo "# CONFIG_PACKAGE_firewall4 is not set" >> .config
-          echo "# CONFIG_PACKAGE_nftables is not set" >> .config
+          # 将配置内容写入文件
+          echo "$CONFIG_CONTENT" > .config
           
           make defconfig
 
@@ -106,15 +78,12 @@ EOF
         run: |
           cd openwrt
           
-          # 设置ccache
           ccache --max-size=2G
           ccache -s
           
-          # 多线程编译
           CPU_CORES=$(nproc)
           echo "使用 $CPU_CORES 个CPU核心进行编译"
           
-          # 编译固件
           make -j$CPU_CORES V=s 2>&1 | tee build.log || {
             echo "多线程编译失败，切换到单线程..."
             make -j1 V=s 2>&1 | tee build-error.log
@@ -125,7 +94,6 @@ EOF
         run: |
           cd openwrt
           
-          # 查找固件文件
           FIRMWARE=$(find bin/targets -name "*squashfs-sysupgrade.bin" | head -1)
           
           if [ -z "$FIRMWARE" ]; then
@@ -134,7 +102,7 @@ EOF
           fi
           
           SIZE=$(stat -c%s "$FIRMWARE")
-          MAX_SIZE=16777216  # 16MB
+          MAX_SIZE=16777216
           
           echo "固件: $FIRMWARE"
           echo "大小: $SIZE 字节"
