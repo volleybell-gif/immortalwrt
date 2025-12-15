@@ -1,4 +1,4 @@
-name: Ultimate TL-WR703N 16MB Build
+name: Stable TL-WR703N 16MB Build
 
 on:
   workflow_dispatch:
@@ -21,97 +21,96 @@ jobs:
         
     - name: Clone fresh source
       run: |
-        # 完全重新开始，避免之前的缓存问题
+        # 完全重新开始
         rm -rf immortalwrt 2>/dev/null || true
         git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git
         
-    - name: Force configure for ar71xx only
+    - name: Update and install feeds (关键步骤)
       run: |
         cd immortalwrt
         
-        echo "🧹 完全清理..."
-        rm -rf bin build_dir staging_dir tmp logs .config feeds.conf.default 2>/dev/null || true
+        echo "🔄 更新feeds..."
         
-        echo "🎯 强制设置只编译 ar71xx..."
+        # 检查feeds配置文件是否存在
+        if [ ! -f "feeds.conf.default" ]; then
+          echo "⚠️ feeds.conf.default 不存在，尝试恢复..."
+          # 从git恢复文件
+          git checkout feeds.conf.default 2>/dev/null || {
+            echo "❌ 无法恢复feeds.conf.default"
+            exit 1
+          }
+        fi
         
-        # 第一步：先选择架构
+        echo "正在更新feeds..."
+        ./scripts/feeds update -a
+        
+        echo "安装feeds..."
+        ./scripts/feeds install -a
+        
+        echo "✅ Feeds 更新完成"
+        
+    - name: Configure minimal build
+      run: |
+        cd immortalwrt
+        
+        echo "🎯 创建最小配置..."
+        
+        # 只清理构建目录，不要删除配置文件
+        rm -rf bin build_dir staging_dir tmp logs .config 2>/dev/null || true
+        
+        # 创建最小配置
         echo "CONFIG_TARGET_ar71xx=y" > .config
         echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
-        
-        # 第二步：生成基础配置
-        make defconfig
-        
-        # 第三步：手动编辑.config文件，确保只选ar71xx
-        echo "手动编辑配置，确保只选ar71xx..."
-        sed -i '/CONFIG_TARGET_/d' .config  # 删除所有目标配置
-        sed -i '/CONFIG_TARGET_ARCH_PACKAGES/d' .config  # 删除架构包配置
-        
-        # 重新添加只我们需要的配置
-        echo "# 只选 ar71xx" >> .config
-        echo "CONFIG_TARGET_ar71xx=y" >> .config
-        echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
         echo "CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
-        
-        # 禁用所有其他架构
-        echo "# 禁用其他所有架构" >> .config
-        echo "# CONFIG_TARGET_x86 is not set" >> .config
-        echo "# CONFIG_TARGET_x86_64 is not set" >> .config
-        echo "# CONFIG_TARGET_armvirt is not set" >> .config
-        echo "# CONFIG_TARGET_mediatek is not set" >> .config
-        echo "# CONFIG_TARGET_ramips is not set" >> .config
-        echo "# CONFIG_TARGET_bcm27xx is not set" >> .config
-        echo "# CONFIG_TARGET_mxs is not set" >> .config
-        echo "# CONFIG_TARGET_sunxi is not set" >> .config
-        
-        # 基本配置
-        echo "# 基础配置" >> .config
         echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
         echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14080" >> .config
-        
-        echo "# 基础包" >> .config
+        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
         echo "CONFIG_PACKAGE_base-files=y" >> .config
         echo "CONFIG_PACKAGE_busybox=y" >> .config
         echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
         
-        # 无线驱动
-        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
-        echo "CONFIG_ATH_USER_REGD=y" >> .config
+        # 禁用所有其他架构
+        echo "# 禁用x86和其他架构" >> .config
+        echo "# CONFIG_TARGET_x86 is not set" >> .config
+        echo "# CONFIG_TARGET_x86_64 is not set" >> .config
         
-        echo "✅ 配置强制完成"
+        echo "生成默认配置..."
+        make defconfig
         
-    - name: Verify configuration
+        # 确保只编译ar71xx
+        sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config 2>/dev/null || true
+        sed -i 's/CONFIG_TARGET_x86_64=y/# CONFIG_TARGET_x86_64 is not set/' .config 2>/dev/null || true
+        
+        echo "✅ 配置完成"
+        
+    - name: Build with optimization
       run: |
         cd immortalwrt
         
-        echo "🔍 验证配置..."
-        echo "检查是否有 x86 相关配置："
-        grep -i "x86\|x86_64\|target-x86" .config 2>/dev/null && echo "⚠️ 发现x86配置" || echo "✅ 无x86配置"
-        
-        echo "检查目标架构："
-        grep -i "target.*ar71xx\|target.*generic" .config
-        
-        echo "配置文件大小："
-        wc -l .config
-        
-    - name: Minimal build
-      run: |
-        cd immortalwrt
-        
-        echo "🔨 开始最小化编译..."
+        echo "🔨 开始编译..."
         echo "开始时间: $(date)"
+        echo "CPU核心: $(nproc)"
         
-        # 只编译内核和基础包
-        echo "1. 编译内核..."
-        make target/linux/compile -j$(nproc) 2>&1 | tee kernel-build.log
+        # 设置环境变量
+        export FORCE_UNSAFE_CONFIGURE=1
         
-        echo "2. 编译基础包..."
-        make package/base-files/compile -j$(nproc) 2>&1 | tee base-build.log
-        make package/busybox/compile -j$(nproc) 2>&1 | tee busybox-build.log
+        # 编译步骤
+        echo "1. 编译工具链..."
+        make toolchain/install -j$(nproc) 2>&1 | tee toolchain.log || {
+          echo "⚠️ 工具链编译出现问题，继续..."
+        }
         
-        echo "3. 生成镜像..."
-        make -j$(nproc) 2>&1 | tee final-build.log || {
-          echo "⚠️ 编译失败，尝试单线程..."
-          make -j1 2>&1 | tee single-build.log
+        echo "2. 编译内核..."
+        make target/linux/compile -j$(nproc) 2>&1 | tee kernel.log
+        
+        echo "3. 编译基础包..."
+        make package/base-files/compile -j$(nproc) 2>&1 | tee base.log
+        make package/busybox/compile -j$(nproc) 2>&1 | tee busybox.log
+        
+        echo "4. 最终编译..."
+        make -j$(nproc) 2>&1 | tee build.log || {
+          echo "⚠️ 多线程失败，尝试单线程..."
+          make -j1 2>&1 | tee single.log
         }
         
         echo "完成时间: $(date)"
@@ -122,30 +121,46 @@ jobs:
         
         echo "📊 编译结果检查..."
         
-        # 检查ar71xx目录是否存在
-        if [ -d "bin/targets/ar71xx" ]; then
-          echo "✅ 找到 ar71xx 目标目录"
+        # 检查是否有固件
+        if find bin/targets -name "*.bin" 2>/dev/null | grep -q .; then
+          echo "✅ 编译成功！找到固件:"
+          find bin/targets -name "*.bin" -exec ls -lh {} \;
           
-          # 列出所有文件
-          find bin/targets/ar71xx -type f -name "*.bin" 2>/dev/null | while read file; do
-            echo "🎯 固件: $file"
-            ls -lh "$file"
-          done
-          
-          # 统计文件数量
-          COUNT=$(find bin/targets/ar71xx -name "*.bin" 2>/dev/null | wc -l)
-          echo "找到 $COUNT 个固件文件"
+          # 特别检查 ar71xx 固件
+          if ls bin/targets/ar71xx/generic/*.bin 1>/dev/null 2>&1; then
+            echo "🎯 TL-WR703N 16MB 固件:"
+            ls -lh bin/targets/ar71xx/generic/*.bin | head -3
+            
+            # 检查固件类型
+            for f in bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin 2>/dev/null; do
+              if [ -f "$f" ]; then
+                echo "🎉 找到 squashfs-sysupgrade 固件"
+                size=$(stat -c%s "$f")
+                echo "📏 大小: $((size / 1024 / 1024))MB ($((size / 1024))KB)"
+              fi
+            done
+          fi
         else
-          echo "❌ 未找到 ar71xx 目录"
-          echo "📁 所有目标目录:"
-          find bin/targets -type d 2>/dev/null || echo "无目标目录"
+          echo "❌ 未找到固件文件"
+          echo "📁 目录结构:"
+          ls -la bin/ 2>/dev/null || echo "bin/ 目录不存在"
         fi
         
     - name: Upload firmware
       if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: tl-wr703n-final-firmware
+        name: tl-wr703n-16mb-firmware
         path: |
           immortalwrt/bin/targets/ar71xx/generic/*.bin
+        retention-days: 7
+        
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          immortalwrt/build.log
+          immortalwrt/single.log
         retention-days: 7
