@@ -1,7 +1,7 @@
 name: Build ImmortalWrt 21.02 for WR703N
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
     inputs:
       clean_build:
         description: 'Clean build (no cache)'
@@ -12,7 +12,7 @@ on:
           - 'false'
           - 'true'
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - '.github/workflows/build-immortalwrt.yml'
       - 'config/**'
@@ -24,24 +24,19 @@ env:
   TARGET: ath79
   SUBTARGET: tiny
   PROFILE: tl-wr703n-v1
-  IMAGE_PREFIX: immortalwrt-21.02-ath79-tiny-tl-wr703n-v1
-  BUILDER_IMAGE: immortalwrt/imagebuilder:21.02-ath79-tiny
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    strategy:
-      matrix:
-        make_jobs: [8]  # 根据GitHub Actions runner配置，建议使用4-8线程
-    
+    timeout-minutes: 180
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
       with:
         submodules: recursive
         fetch-depth: 0
-    
+
     - name: Setup Build Environment
       run: |
         sudo apt-get update
@@ -55,7 +50,6 @@ jobs:
           gawk \
           gettext \
           git \
-          git-lfs \
           java-propose-classpath \
           libelf-dev \
           libncurses5-dev \
@@ -71,25 +65,27 @@ jobs:
           unzip \
           wget \
           xsltproc \
-          zlib1g-dev
-        sudo apt-get clean
-    
+          zlib1g-dev \
+          xmlto \
+          quilt \
+          rename
+
     - name: Setup ccache
       uses: actions/cache@v3
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-ccache-${{ hashFiles('feeds.conf', '.config') }}
+        key: ${{ runner.os }}-ccache-${{ github.sha }}
         restore-keys: |
           ${{ runner.os }}-ccache-
-    
-    - name: Cache build downloads
+
+    - name: Cache download directory
       uses: actions/cache@v3
       with:
-        path: ./dl
-        key: ${{ runner.os }}-dl-${{ hashFiles('feeds.conf') }}
+        path: dl
+        key: ${{ runner.os }}-dl-cache-${{ hashFiles('feeds.conf', 'Makefile') }}
         restore-keys: |
-          ${{ runner.os }}-dl-
-    
+          ${{ runner.os }}-dl-cache-
+
     - name: Clone ImmortalWrt source
       run: |
         git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
@@ -97,27 +93,23 @@ jobs:
         if [ -f ../feeds.conf ]; then
           cp ../feeds.conf .
         fi
-    
-    - name: Copy configuration
+
+    - name: Update and install feeds
       run: |
-        if [ -d config ]; then
-          cp -rf config/* openwrt/
-        fi
-    
-    - name: Prepare configuration for WR703N 16M
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Configure for WR703N 16M
       run: |
         cd openwrt
         
-        # 更新 feeds
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-        
-        # 创建基础配置
+        # 生成基础配置
         cat > .config << 'EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ATH79_TINY=y
 CONFIG_TARGET_ATH79_TINY_DEVICE_TL_WR703N_V1=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=512
+CONFIG_TARGET_ROOTFS_PARTSIZE=15360
 CONFIG_TARGET_KERNEL_PARTSIZE=4
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_IMAGES_GZIP=y
@@ -129,87 +121,76 @@ CONFIG_PACKAGE_luci-theme-bootstrap=y
 CONFIG_PACKAGE_luci-app-firewall=y
 CONFIG_PACKAGE_luci-app-opkg=y
 CONFIG_PACKAGE_ipv6helper=y
-CONFIG_PACKAGE_6in4=y
-CONFIG_PACKAGE_6rd=y
-CONFIG_PACKAGE_6to4=y
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_iptables-mod-extra=y
+CONFIG_PACKAGE_kmod-ipt-offload=y
+CONFIG_PACKAGE_ppp=y
+CONFIG_PACKAGE_ppp-mod-pppoe=y
+CONFIG_PACKAGE_kmod-usb-core=y
+CONFIG_PACKAGE_kmod-usb2=y
+CONFIG_PACKAGE_kmod-usb-storage=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_fdisk=y
+CONFIG_PACKAGE_e2fsprogs=y
 CONFIG_BINARY_FOLDER=""
 CONFIG_DOWNLOAD_FOLDER=""
 CONFIG_LOCALMIRROR=""
+CONFIG_CCACHE=y
+CONFIG_BUILD_LOG=y
 EOF
-        
-        # 启用额外的包（根据需要调整）
-        echo "CONFIG_PACKAGE_luci-proto-ipv6=y" >> .config
-        echo "CONFIG_PACKAGE_luci-proto-ppp=y" >> .config
-        echo "CONFIG_PACKAGE_iptables-mod-extra=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-fs-vfat=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-usb-storage=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-usb2=y" >> .config
-        echo "CONFIG_PACKAGE_block-mount=y" >> .config
-        echo "CONFIG_PACKAGE_fdisk=y" >> .config
-        
-        # 16MB闪存优化
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=15360" >> .config
-        echo "# CONFIG_PACKAGE_luci-app-ddns is not set" >> .config
-        echo "# CONFIG_PACKAGE_luci-app-upnp is not set" >> .config
-        
-        # 启用 ccache
-        echo "CONFIG_CCACHE=y" >> .config
-        
-        # 启用并行编译
-        echo "CONFIG_BUILD_LOG=y" >> .config
-    
-    - name: Finalize configuration
+
+        # 应用配置
+        make defconfig
+
+    - name: Download packages
       run: |
         cd openwrt
-        make defconfig
-        
-        # 显示配置摘要
-        echo "=== Configuration Summary ==="
-        grep -E "CONFIG_TARGET|CONFIG_PACKAGE|CONFIG_CCACHE" .config | head -30
-    
+        make download -j$(nproc)
+
     - name: Build firmware
       run: |
         cd openwrt
         
-        # 设置编译环境变量
+        # 设置环境变量
         export FORCE_UNSAFE_CONFIGURE=1
-        export CCACHE_DIR=~/.ccache
+        export CCACHE_DIR="$HOME/.ccache"
         export CCACHE_MAXSIZE=5G
         export CCACHE_COMPRESS=1
+        export CCACHE_COMPRESSLEVEL=6
         
-        # 使用多线程编译
-        MAKE_ARGS="-j${{ matrix.make_jobs }} V=s"
-        
-        # 根据输入决定是否清理
+        # 清理或使用缓存构建
         if [ "${{ github.event.inputs.clean_build }}" = "true" ]; then
           echo "Performing clean build..."
-          make dirclean
-          rm -rf tmp/
-          rm -rf build_dir/
-          rm -rf staging_dir/
+          make clean
         fi
         
-        # 下载依赖
-        make download $MAKE_ARGS || make download $MAKE_ARGS
-        
-        # 编译固件
-        time make $MAKE_ARGS
-        
-        # 检查生成的文件
-        echo "=== Generated files ==="
-        find bin/targets -name "*squashfs-sysupgrade*" -type f | xargs ls -lh
-    
-    - name: Upload firmware artifacts
+        # 开始编译（使用所有CPU核心）
+        time make -j$(nproc) V=s
+
+    - name: List generated files
+      run: |
+        cd openwrt
+        echo "=== Generated firmware files ==="
+        find bin/targets -type f -name "*.bin" | xargs ls -lh
+        echo ""
+        echo "=== Sysupgrade files ==="
+        find bin/targets -type f -name "*sysupgrade*.bin" | xargs ls -lh
+
+    - name: Upload firmware artifact
       uses: actions/upload-artifact@v3
       if: success()
       with:
-        name: immortalwrt-wr703n-16m
-        path: openwrt/bin/targets/ath79/tiny/
+        name: immortalwrt-21.02-wr703n-16m
+        path: |
+          openwrt/bin/targets/ath79/tiny/*.bin
+          openwrt/bin/targets/ath79/tiny/*.manifest
         retention-days: 7
-    
-    - name: Upload build logs
-      if: always()
+
+    - name: Upload build logs on failure
+      if: failure()
       uses: actions/upload-artifact@v3
       with:
         name: build-logs
