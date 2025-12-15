@@ -17,7 +17,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 延长到3小时
+    timeout-minutes: 180
 
     steps:
       - name: Checkout repository
@@ -38,7 +38,7 @@ jobs:
 
       - name: Clone ImmortalWrt source
         run: |
-          rm -rf openwrt  # 清理旧目录
+          rm -rf openwrt
           git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
 
       - name: Configure build
@@ -52,22 +52,20 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 创建配置 - 确保只编译TP-WR703N
-          cat > .config << 'EOF'
-CONFIG_TARGET_ath79=y
-CONFIG_TARGET_ath79_tiny=y
-CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=14
-CONFIG_CCACHE=y
-CONFIG_PACKAGE_wpad-basic=y
-CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
-CONFIG_KERNEL_BUILD_DOMAIN="immortalwrt.org"
-CONFIG_DEBUG_INFO=n
-CONFIG_USE_MKLIBS=n
-CONFIG_BUILD_LOG=y
-CONFIG_TARGET_MULTI_PROFILE=n
-EOF
+          # 使用echo创建配置，避免heredoc语法问题
+          echo "CONFIG_TARGET_ath79=y" > .config
+          echo "CONFIG_TARGET_ath79_tiny=y" >> .config
+          echo "CONFIG_TARGET_ath79_tiny_DEVICE_tp-link_tl-wr703n-v1=y" >> .config
+          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14" >> .config
+          echo "CONFIG_CCACHE=y" >> .config
+          echo "CONFIG_PACKAGE_wpad-basic=y" >> .config
+          echo "CONFIG_KERNEL_BUILD_USER=\"ImmortalWrt\"" >> .config
+          echo "CONFIG_KERNEL_BUILD_DOMAIN=\"immortalwrt.org\"" >> .config
+          echo "CONFIG_DEBUG_INFO=n" >> .config
+          echo "CONFIG_USE_MKLIBS=n" >> .config
+          echo "CONFIG_BUILD_LOG=y" >> .config
+          echo "CONFIG_TARGET_MULTI_PROFILE=n" >> .config
           
           # 禁用不需要的包和其他设备
           echo "# CONFIG_PACKAGE_luci is not set" >> .config
@@ -77,7 +75,6 @@ EOF
           echo "# CONFIG_TARGET_ATH79_TINY_DEVICE_BUFFALO_WHAR301N is not set" >> .config
           echo "# CONFIG_TARGET_ATH79_TINY_DEVICE_BUFFALO_WHARG301N is not set" >> .config
           echo "# CONFIG_TARGET_ATH79_TINY_DEVICE_GL_INET_GL_AR150 is not set" >> .config
-          echo "# CONFIG_TARGET_ATH79_TINY_DEVICE_TP_LINK_TL_WR703N_V1 is not set" >> .config  # 禁用其他写法
           
           make defconfig
           
