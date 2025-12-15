@@ -148,6 +148,8 @@ EOF
         make download -j$(nproc)
 
     - name: Build firmware
+      env:
+        CLEAN_BUILD: ${{ github.event.inputs.clean_build }}
       run: |
         cd openwrt
         
@@ -159,7 +161,7 @@ EOF
         export CCACHE_COMPRESSLEVEL=6
         
         # 清理或使用缓存构建
-        if [ "${{ github.event.inputs.clean_build }}" = "true" ]; then
+        if [ "$CLEAN_BUILD" = "true" ]; then
           echo "Performing clean build..."
           make clean
         fi
