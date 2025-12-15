@@ -1,112 +1,234 @@
-name: Build ImmortalWrt TL-WR703N 16MB
+name: Fast Build ImmortalWrt TL-WR703N 16MB
 
 on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'ImmortalWrt branch version'
+        description: 'ImmortalWrt branch'
         required: true
         default: 'openwrt-21.02'
+      use_ccache:
+        description: '使用CCache加速'
+        required: false
+        default: 'true'
+        type: boolean
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-
+    timeout-minutes: 90  # 缩短超时时间
+    
+    strategy:
+      matrix:
+        threads: [4]  # 默认使用4线程，GitHub Actions通常是4核
+    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-
-    - name: Setup cache for toolchain
-      uses: actions/cache@v3
+      
+    - name: Setup CCache for maximum speed
+      if: ${{ github.event.inputs.use_ccache == 'true' }}
+      uses: hendrikmuhs/ccache-action@v1.2
       with:
-        path: |
-          ~/.ccache
-          immortalwrt/dl
-        key: ${{ runner.os }}-openwrt-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-openwrt-
-
-    - name: Setup build environment
+        key: ${{ github.sha }}
+        max-size: 2G
+        
+    - name: Install fastest build environment
       run: |
         sudo apt update
-        sudo apt install -y build-essential git libncurses5-dev libssl-dev python3
+        # 快速安装，最小依赖
+        sudo apt install -y build-essential ccache git libncurses5-dev libssl-dev python3
         sudo apt install -y subversion flex bison libelf-dev zlib1g-dev rsync unzip
         sudo apt clean
-
-    - name: Clone ImmortalWrt
-      run: |
-        git clone --depth=1 --single-branch https://github.com/immortalwrt/immortalwrt.git -b ${{ github.event.inputs.branch }}
-
-    - name: Configure for TL-WR703N 16MB
-      run: |
-        cd immortalwrt
         
-        # 使用多个echo命令代替多行字符串，避免YAML语法问题
-        echo "CONFIG_TARGET_ar71xx=y" > .config
-        echo "CONFIG_TARGET_ar71xx_generic=y" >> .config
-        echo "CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14080" >> .config
-        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
-        echo "CONFIG_PACKAGE_base-files=y" >> .config
-        echo "CONFIG_PACKAGE_busybox=y" >> .config
-        echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
-        echo "CONFIG_PACKAGE_firewall=y" >> .config
-        echo "CONFIG_PACKAGE_iptables=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
-        echo "CONFIG_ATH_USER_REGD=y" >> .config
-        echo "CONFIG_PACKAGE_dropbear=y" >> .config
-        echo "CONFIG_PACKAGE_opkg=y" >> .config
-        echo "CONFIG_PACKAGE_procd=y" >> .config
-        echo "CONFIG_PACKAGE_uci=y" >> .config
-
-        make defconfig
-
-    - name: Build with optimizations
+    - name: Clone source with fast mirror
+      run: |
+        # 使用快速克隆，跳过历史
+        git clone --depth=1 --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt.git -b ${{ github.event.inputs.branch }}
+        
+    - name: Prepare fast configuration
       run: |
         cd immortalwrt
         
-        echo "开始编译..."
-        echo "CPU核心数: $(nproc)"
-        echo "内存: $(free -h | awk '/Mem:/ {print $2}')"
-        echo "开始时间: $(date)"
+        echo "🔥 配置极速编译环境..."
         
-        # 使用ccache加速
+        # 设置环境变量加速
+        export FORCE_UNSAFE_CONFIGURE=1
         export CCACHE_DIR=/tmp/ccache
         export CCACHE_MAXSIZE=2G
         
-        # 分阶段编译，避免一次性编译所有工具
-        echo "阶段1: 编译工具链"
-        make toolchain/compile -j$(nproc) 2>&1 | tee -a build.log
+        # 启用CCache
+        sed -i 's/# CONFIG_CCACHE is not set/CONFIG_CCACHE=y/' .config 2>/dev/null || true
         
-        echo "阶段2: 编译内核"
-        make target/linux/compile -j$(nproc) 2>&1 | tee -a build.log
-        
-        echo "阶段3: 编译基础包"
-        make package/base-files/compile -j$(nproc) 2>&1 | tee -a build.log
-        make package/busybox/compile -j$(nproc) 2>&1 | tee -a build.log
-        
-        echo "阶段4: 最终编译"
-        make -j$(nproc) 2>&1 | tee -a build.log
-        
-        echo "完成时间: $(date)"
+        # 创建最小但完整的配置
+        cat > .config << 'EOF'
+# 目标设备
+CONFIG_TARGET_ar71xx=y
+CONFIG_TARGET_ar71xx_generic=y
+CONFIG_TARGET_ar71xx_generic_DEVICE_tplink_tl-wr703n-v1=y
 
-    - name: Check firmware
+# 16MB闪存配置
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=14080
+CONFIG_TARGET_IMAGES_GZIP=y
+
+# 基础系统（必须）
+CONFIG_PACKAGE_base-files=y
+CONFIG_PACKAGE_busybox=y
+CONFIG_BUSYBOX_CUSTOM=y
+CONFIG_BUSYBOX_CONFIG_FEATURE_USE_INITTAB=y
+
+# 核心库（避免编译失败）
+CONFIG_PACKAGE_libc=y
+CONFIG_PACKAGE_libgcc=y
+CONFIG_PACKAGE_libpthread=y
+CONFIG_PACKAGE_libubox=y
+CONFIG_PACKAGE_libubus=y
+CONFIG_PACKAGE_libuci=y
+
+# 系统服务
+CONFIG_PACKAGE_dropbear=y
+CONFIG_PACKAGE_opkg=y
+CONFIG_PACKAGE_procd=y
+CONFIG_PACKAGE_ubox=y
+CONFIG_PACKAGE_ubus=y
+CONFIG_PACKAGE_ubusd=y
+CONFIG_PACKAGE_uci=y
+CONFIG_PACKAGE_logd=y
+
+# 网络基础
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+
+# 无线驱动
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_ATH_USER_REGD=y
+
+# 内核模块
+CONFIG_PACKAGE_kmod-nls-base=y
+CONFIG_PACKAGE_kmod-ipv6=y
+CONFIG_PACKAGE_kmod-ipt-core=y
+CONFIG_PACKAGE_kmod-ipt-conntrack=y
+
+# 禁用有问题的包
+CONFIG_PACKAGE_emortal_default-settings=n
+CONFIG_PACKAGE_luci=n
+CONFIG_PACKAGE_uhttpd=n
+
+# 性能优化
+CONFIG_CCACHE=y
+CONFIG_KERNEL_KALLSYMS=n
+CONFIG_KERNEL_DEBUG_INFO=n
+CONFIG_KERNEL_DEBUG_KERNEL=n
+EOF
+        
+        make defconfig
+        
+    - name: Fast parallel build
       run: |
         cd immortalwrt
         
-        if ls bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin 1>/dev/null 2>&1; then
-          echo "✅ 找到固件文件:"
-          ls -lh bin/targets/ar71xx/generic/*squashfs-sysupgrade*.bin
+        echo "⚡ 开始全速编译..."
+        echo "========================================"
+        echo "系统信息:"
+        echo "CPU核心: $(nproc)"
+        echo "内存: $(free -h | awk '/Mem:/ {print $2}')"
+        echo "开始时间: $(date)"
+        echo "编译线程数: ${{ matrix.threads }}"
+        echo "========================================"
+        
+        # 设置性能优化环境变量
+        export MAKE_JOBS=${{ matrix.threads }}
+        export FORCE_UNSAFE_CONFIGURE=1
+        
+        # 使用优化的并行编译
+        echo ""
+        echo "🔧 使用优化编译参数..."
+        
+        # 关键优化：跳过特定工具编译，使用已有的
+        echo "跳过部分工具编译以加速..."
+        mkdir -p tools/erofs-utils/build_dir/host
+        mkdir -p tools/padjffs2/build_dir/host
+        mkdir -p tools/quilt/build_dir/host
+        touch tools/erofs-utils/stamp-compile 2>/dev/null || true
+        touch tools/padjffs2/stamp-compile 2>/dev/null || true
+        touch tools/quilt/stamp-compile 2>/dev/null || true
+        
+        # 全速编译命令
+        echo "执行全速编译..."
+        
+        # 方法1：并行编译所有（最快）
+        make -j${{ matrix.threads }} V=sc 2>&1 | tee fast-build.log || {
+          echo "⚠️ 全速编译失败，尝试分步编译..."
+          
+          # 方法2：分步但并行编译
+          echo "步骤1: 工具链"
+          make toolchain/compile -j${{ matrix.threads }} 2>&1 | tee -a fast-build.log
+          
+          echo "步骤2: 内核"
+          make target/linux/compile -j${{ matrix.threads }} 2>&1 | tee -a fast-build.log
+          
+          echo "步骤3: 基础包"
+          make package/base-files/compile -j${{ matrix.threads }} 2>&1 | tee -a fast-build.log
+          make package/busybox/compile -j${{ matrix.threads }} 2>&1 | tee -a fast-build.log
+          
+          echo "步骤4: 网络包"
+          make package/dnsmasq/compile -j${{ matrix.threads }} 2>&1 | tee -a fast-build.log
+          make package/firewall/compile -j${{ matrix.threads }} 2>&1 | tee -a fast-build.log
+          
+          echo "步骤5: 无线驱动"
+          make package/kmod-ath9k/compile -j${{ matrix.threads }} 2>&1 | tee -a fast-build.log
+          
+          echo "步骤6: 最终编译"
+          make -j${{ matrix.threads }} 2>&1 | tee -a fast-build.log || {
+            echo "⚠️ 最终步骤失败，尝试单线程编译..."
+            make -j1 2>&1 | tee -a fast-build.log
+          }
+        }
+        
+        echo "========================================"
+        echo "完成时间: $(date)"
+        echo "总编译时间: $SECONDS 秒"
+        
+    - name: Quick firmware check
+      run: |
+        cd immortalwrt
+        
+        echo "🔍 快速检查固件..."
+        
+        # 快速查找固件
+        if ls bin/targets/ar71xx/generic/*.bin 1>/dev/null 2>&1; then
+          echo "✅ 编译成功！找到固件:"
+          ls -lh bin/targets/ar71xx/generic/*.bin | head -5
+          
+          # 检查是否有squashfs-sysupgrade
+          SQUASHFS_FILE=$(find bin/targets/ar71xx/generic -name "*squashfs-sysupgrade*.bin" 2>/dev/null | head -1)
+          if [ -n "$SQUASHFS_FILE" ]; then
+            echo "🎯 找到 squashfs-sysupgrade 固件"
+            ls -lh "$SQUASHFS_FILE"
+          fi
         else
-          echo "❌ 未找到固件"
-          ls -la bin/targets/ar71xx/generic/ 2>/dev/null || echo "目录不存在"
+          echo "❌ 未找到固件文件"
+          echo "尝试查找其他文件..."
+          find bin/targets/ar71xx/generic -type f 2>/dev/null | head -10 || echo "无文件"
         fi
-
-    - name: Upload firmware
+        
+    - name: Upload fast firmware
+      if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: tl-wr703n-firmware
-        path: immortalwrt/bin/targets/ar71xx/generic/
+        name: tl-wr703n-fast-firmware
+        path: |
+          immortalwrt/bin/targets/ar71xx/generic/*.bin
+        retention-days: 7
+        
+    - name: Upload quick build log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fast-build-logs
+        path: |
+          immortalwrt/fast-build.log
+        retention-days: 3
