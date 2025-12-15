@@ -33,9 +33,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-      with:
-        submodules: recursive
-        fetch-depth: 0
 
     - name: Setup Build Environment
       run: |
@@ -74,17 +71,17 @@ jobs:
       uses: actions/cache@v3
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-ccache-${{ github.sha }}
+        key: ccache-${{ github.sha }}
         restore-keys: |
-          ${{ runner.os }}-ccache-
+          ccache-
 
     - name: Cache download directory
       uses: actions/cache@v3
       with:
         path: dl
-        key: ${{ runner.os }}-dl-cache-${{ hashFiles('feeds.conf', 'Makefile') }}
+        key: dl-cache-${{ hashFiles('feeds.conf', 'Makefile') }}
         restore-keys: |
-          ${{ runner.os }}-dl-cache-
+          dl-cache-
 
     - name: Clone ImmortalWrt source
       run: |
