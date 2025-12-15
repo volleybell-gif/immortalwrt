@@ -73,7 +73,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 创建最小配置
+          # 创建最小配置 - 注意EOF的缩进问题
           cat > .config << 'EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_tiny=y
