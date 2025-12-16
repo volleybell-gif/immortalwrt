@@ -56,8 +56,9 @@ jobs:
           libncursesw5-dev \
           libssl-dev \
           python3 \
-          python3-distutils \
           python3-setuptools \
+          python3-venv \
+          python3-dev \
           rsync \
           subversion \
           swig \
@@ -208,6 +209,9 @@ jobs:
         export CCACHE_COMPRESS=1
         
         echo "使用 $MAKE_JOBS 个线程进行编译"
+        
+        # 先下载源码包
+        make download -j$MAKE_JOBS
         
         # 开始编译 - 使用多线程
         time make -j$MAKE_JOBS V=s 2>&1 | tee build.log
