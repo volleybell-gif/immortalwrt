@@ -81,43 +81,43 @@ jobs:
         
         # 创建最小配置
         cat > .config << 'CONFIG_EOF'
-CONFIG_TARGET_ath79=y
-CONFIG_TARGET_ath79_tiny=y
-CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=14
-CONFIG_TARGET_IMAGES_GZIP=y
-CONFIG_TARGET_IMAGES_PAD=y
-# CONFIG_TARGET_ROOTFS_INITRAMFS is not set
-CONFIG_CCACHE=y
-CONFIG_BUILD_LOG=y
-CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
-CONFIG_KERNEL_BUILD_DOMAIN="immortalwrt.org"
-CONFIG_DEBUG_INFO=n
-CONFIG_USE_MKLIBS=n
-CONFIG_TARGET_MULTI_PROFILE=n
-CONFIG_PACKAGE_kmod-ath=y
-CONFIG_PACKAGE_kmod-ath9k=y
-CONFIG_PACKAGE_kmod-ath9k-common=y
-CONFIG_PACKAGE_wpad-basic=y
-CONFIG_PACKAGE_hostapd-common=y
-CONFIG_PACKAGE_iw=y
-CONFIG_PACKAGE_iwinfo=y
-CONFIG_PACKAGE_dnsmasq=y
-CONFIG_PACKAGE_firewall=y
-CONFIG_PACKAGE_iptables=y
-CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
-CONFIG_PACKAGE_iptables-mod-ipopt=y
-CONFIG_PACKAGE_iptables-mod-nat-extra=y
-# CONFIG_PACKAGE_dnsmasq-full is not set
-# CONFIG_PACKAGE_firewall4 is not set
-# CONFIG_PACKAGE_nftables is not set
-# CONFIG_PACKAGE_ppp-mod-pppoe is not set
-# CONFIG_PACKAGE_luci is not set
-# CONFIG_PACKAGE_luci-base is not set
-# CONFIG_PACKAGE_luci-compat is not set
-# CONFIG_PACKAGE_uhttpd is not set
-CONFIG_EOF
+        CONFIG_TARGET_ath79=y
+        CONFIG_TARGET_ath79_tiny=y
+        CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y
+        CONFIG_TARGET_ROOTFS_SQUASHFS=y
+        CONFIG_TARGET_ROOTFS_PARTSIZE=14
+        CONFIG_TARGET_IMAGES_GZIP=y
+        CONFIG_TARGET_IMAGES_PAD=y
+        # CONFIG_TARGET_ROOTFS_INITRAMFS is not set
+        CONFIG_CCACHE=y
+        CONFIG_BUILD_LOG=y
+        CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
+        CONFIG_KERNEL_BUILD_DOMAIN="immortalwrt.org"
+        CONFIG_DEBUG_INFO=n
+        CONFIG_USE_MKLIBS=n
+        CONFIG_TARGET_MULTI_PROFILE=n
+        CONFIG_PACKAGE_kmod-ath=y
+        CONFIG_PACKAGE_kmod-ath9k=y
+        CONFIG_PACKAGE_kmod-ath9k-common=y
+        CONFIG_PACKAGE_wpad-basic=y
+        CONFIG_PACKAGE_hostapd-common=y
+        CONFIG_PACKAGE_iw=y
+        CONFIG_PACKAGE_iwinfo=y
+        CONFIG_PACKAGE_dnsmasq=y
+        CONFIG_PACKAGE_firewall=y
+        CONFIG_PACKAGE_iptables=y
+        CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+        CONFIG_PACKAGE_iptables-mod-ipopt=y
+        CONFIG_PACKAGE_iptables-mod-nat-extra=y
+        # CONFIG_PACKAGE_dnsmasq-full is not set
+        # CONFIG_PACKAGE_firewall4 is not set
+        # CONFIG_PACKAGE_nftables is not set
+        # CONFIG_PACKAGE_ppp-mod-pppoe is not set
+        # CONFIG_PACKAGE_luci is not set
+        # CONFIG_PACKAGE_luci-base is not set
+        # CONFIG_PACKAGE_luci-compat is not set
+        # CONFIG_PACKAGE_uhttpd is not set
+        CONFIG_EOF
         
         # 应用配置
         make defconfig
@@ -127,54 +127,54 @@ CONFIG_EOF
         
         # network配置 - 唯一网口作为LAN口
         cat > files/etc/config/network << 'EOF'
-config interface 'loopback'
-    option ifname 'lo'
-    option proto 'static'
-    option ipaddr '127.0.0.1'
-    option netmask '255.0.0.0'
+        config interface 'loopback'
+            option ifname 'lo'
+            option proto 'static'
+            option ipaddr '127.0.0.1'
+            option netmask '255.0.0.0'
 
-config interface 'lan'
-    option ifname 'eth0'
-    option proto 'static'
-    option ipaddr '192.168.1.1'
-    option netmask '255.255.255.0'
-EOF
+        config interface 'lan'
+            option ifname 'eth0'
+            option proto 'static'
+            option ipaddr '192.168.1.1'
+            option netmask '255.255.255.0'
+        EOF
         
         # wireless配置 - 开启无线
         cat > files/etc/config/wireless << 'EOF'
-config wifi-device 'radio0'
-    option type 'mac80211'
-    option channel '11'
-    option hwmode '11g'
-    option path 'platform/ar933x_wmac'
-    option htmode 'HT20'
-    option disabled '0'
-    option txpower '20'
+        config wifi-device 'radio0'
+            option type 'mac80211'
+            option channel '11'
+            option hwmode '11g'
+            option path 'platform/ar933x_wmac'
+            option htmode 'HT20'
+            option disabled '0'
+            option txpower '20'
 
-config wifi-iface 'default_radio0'
-    option device 'radio0'
-    option network 'lan'
-    option mode 'ap'
-    option ssid 'TP-WR703N-ImmortalWrt'
-    option encryption 'psk2'
-    option key '12345678'
-EOF
+        config wifi-iface 'default_radio0'
+            option device 'radio0'
+            option network 'lan'
+            option mode 'ap'
+            option ssid 'TP-WR703N-ImmortalWrt'
+            option encryption 'psk2'
+            option key '12345678'
+        EOF
         
         # firewall配置
         cat > files/etc/config/firewall << 'EOF'
-config defaults
-    option syn_flood '1'
-    option input 'ACCEPT'
-    option output 'ACCEPT'
-    option forward 'REJECT'
+        config defaults
+            option syn_flood '1'
+            option input 'ACCEPT'
+            option output 'ACCEPT'
+            option forward 'REJECT'
 
-config zone
-    option name 'lan'
-    list network 'lan'
-    option input 'ACCEPT'
-    option output 'ACCEPT'
-    option forward 'ACCEPT'
-EOF
+        config zone
+            option name 'lan'
+            list network 'lan'
+            option input 'ACCEPT'
+            option output 'ACCEPT'
+            option forward 'ACCEPT'
+        EOF
         
         # 配置验证
         echo "=== 配置验证 ==="
