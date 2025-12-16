@@ -3,10 +3,8 @@ name: Build ImmortalWrt for TP-WR703N
 on:
   workflow_dispatch: {}
   push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/build.yml
+    branches: [main]
+    paths: ['.github/workflows/build.yml']
   schedule:
     - cron: '0 2 * * 0'
 
@@ -51,6 +49,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
+          # 创建最小配置 - 先禁用几乎所有内容
           echo "CONFIG_TARGET_ath79=y" > .config
           echo "CONFIG_TARGET_ath79_tiny=y" >> .config
           echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
@@ -69,39 +68,53 @@ jobs:
           echo "CONFIG_TARGET_IMAGES_PAD=y" >> .config
           
           # 启用无线驱动和工具（AR9331使用ath9k）
-          echo "CONFIG_PACKAGE_kmod-ath9k-htc=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
           echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
           echo "CONFIG_PACKAGE_kmod-ath=y" >> .config
           echo "CONFIG_PACKAGE_hostapd-common=y" >> .config
           echo "CONFIG_PACKAGE_iw=y" >> .config
           echo "CONFIG_PACKAGE_iwinfo=y" >> .config
           
-          # 启用必要的网络包
+          # 使用wpad-basic（轻量级）
           echo "CONFIG_PACKAGE_wpad-basic=y" >> .config
+          
+          # 启用基础网络包
           echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
           echo "CONFIG_PACKAGE_firewall=y" >> .config
           echo "CONFIG_PACKAGE_iptables=y" >> .config
-          echo "CONFIG_PACKAGE_iptables-mod-extra=y" >> .config
           
-          # 禁用不必要的包以节省空间
+          # 禁用dnsmasq-full以避免冲突
+          echo "# CONFIG_PACKAGE_dnsmasq-full is not set" >> .config
+          
+          # 禁用所有Luci相关包
           echo "# CONFIG_PACKAGE_luci is not set" >> .config
           echo "# CONFIG_PACKAGE_luci-ssl is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-app-firewall is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-i18n-base-zh-cn is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-i18n-firewall-zh-cn is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-i18n-opkg-zh-cn is not set" >> .config
+          
+          # 禁用firewall4和nftables
           echo "# CONFIG_PACKAGE_firewall4 is not set" >> .config
           echo "# CONFIG_PACKAGE_nftables is not set" >> .config
           
+          # 禁用其他可能冲突的包
+          echo "# CONFIG_PACKAGE_ppp-mod-pppoe is not set" >> .config
+          echo "# CONFIG_PACKAGE_ca-bundle is not set" >> .config
+          echo "# CONFIG_PACKAGE_default-settings-chn is not set" >> .config
+          
           make defconfig
           
+          # 清理所有设备配置，然后只启用TP-WR703N
           sed -i '/CONFIG_TARGET_ath79_tiny_DEVICE_/d' .config
-          echo "# CONFIG_TARGET_ath79_tiny_DEVICE_buffalo_whar301n is not set" >> .config
-          echo "# CONFIG_TARGET_ath79_tiny_DEVICE_buffalo_whr-g301n is not set" >> .config
-          echo "# CONFIG_TARGET_ath79_tiny_DEVICE_gl-inet_gl-ar150 is not set" >> .config
-          
           echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y" >> .config
           
+          # 禁用其他所有设备
+          sed -i 's/CONFIG_TARGET_ath79_tiny_DEVICE_/# CONFIG_TARGET_ath79_tiny_DEVICE_/g' .config
+          sed -i 's/# CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n/CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n/' .config
+          
           make defconfig
           
-          # 创建自定义配置文件，将有线网口设置为LAN口，启用无线
+          # 创建自定义配置文件
           mkdir -p files/etc/config
           
           # 创建network配置文件
@@ -111,16 +124,11 @@ jobs:
           echo "    option ipaddr '127.0.0.1'" >> files/etc/config/network
           echo "    option netmask '255.0.0.0'" >> files/etc/config/network
           echo "" >> files/etc/config/network
-          echo "config globals 'globals'" >> files/etc/config/network
-          echo "    option ula_prefix 'fdb4:6e0b:b93e::/48'" >> files/etc/config/network
-          echo "" >> files/etc/config/network
           echo "config interface 'lan'" >> files/etc/config/network
           echo "    option ifname 'eth0'" >> files/etc/config/network
-          echo "    option type 'bridge'" >> files/etc/config/network
           echo "    option proto 'static'" >> files/etc/config/network
           echo "    option ipaddr '192.168.1.1'" >> files/etc/config/network
           echo "    option netmask '255.255.255.0'" >> files/etc/config/network
-          echo "    option ip6assign '60'" >> files/etc/config/network
           
           # 创建wireless配置文件
           echo "config wifi-device 'radio0'" > files/etc/config/wireless
@@ -130,7 +138,6 @@ jobs:
           echo "    option path 'platform/ar933x_wmac'" >> files/etc/config/wireless
           echo "    option htmode 'HT20'" >> files/etc/config/wireless
           echo "    option disabled '0'" >> files/etc/config/wireless
-          echo "    option txpower '20'" >> files/etc/config/wireless
           echo "" >> files/etc/config/wireless
           echo "config wifi-iface 'default_radio0'" >> files/etc/config/wireless
           echo "    option device 'radio0'" >> files/etc/config/wireless
@@ -139,15 +146,12 @@ jobs:
           echo "    option ssid 'TP-WR703N-ImmortalWrt'" >> files/etc/config/wireless
           echo "    option encryption 'psk2'" >> files/etc/config/wireless
           echo "    option key '12345678'" >> files/etc/config/wireless
-          echo "    option wmm '0'" >> files/etc/config/wireless
           
           # 创建firewall配置文件
           echo "config defaults" > files/etc/config/firewall
-          echo "    option syn_flood '1'" >> files/etc/config/firewall
           echo "    option input 'ACCEPT'" >> files/etc/config/firewall
           echo "    option output 'ACCEPT'" >> files/etc/config/firewall
           echo "    option forward 'REJECT'" >> files/etc/config/firewall
-          echo "    option disable_ipv6 '0'" >> files/etc/config/firewall
           echo "" >> files/etc/config/firewall
           echo "config zone" >> files/etc/config/firewall
           echo "    option name 'lan'" >> files/etc/config/firewall
@@ -155,27 +159,17 @@ jobs:
           echo "    option input 'ACCEPT'" >> files/etc/config/firewall
           echo "    option output 'ACCEPT'" >> files/etc/config/firewall
           echo "    option forward 'ACCEPT'" >> files/etc/config/firewall
-          echo "    option masq '1'" >> files/etc/config/firewall
-          echo "    option mtu_fix '1'" >> files/etc/config/firewall
           
           # 创建DHCP配置文件
           echo "config dnsmasq" > files/etc/config/dhcp
           echo "    option domainneeded '1'" >> files/etc/config/dhcp
           echo "    option boguspriv '1'" >> files/etc/config/dhcp
-          echo "    option filterwin2k '0'" >> files/etc/config/dhcp
           echo "    option localise_queries '1'" >> files/etc/config/dhcp
-          echo "    option rebind_protection '1'" >> files/etc/config/dhcp
-          echo "    option rebind_localhost '1'" >> files/etc/config/dhcp
           echo "    option local '/lan/'" >> files/etc/config/dhcp
           echo "    option domain 'lan'" >> files/etc/config/dhcp
           echo "    option expandhosts '1'" >> files/etc/config/dhcp
-          echo "    option nonegcache '0'" >> files/etc/config/dhcp
           echo "    option authoritative '1'" >> files/etc/config/dhcp
-          echo "    option readethers '1'" >> files/etc/config/dhcp
           echo "    option leasefile '/tmp/dhcp.leases'" >> files/etc/config/dhcp
-          echo "    option resolvfile '/tmp/resolv.conf.d/resolv.conf.auto'" >> files/etc/config/dhcp
-          echo "    option nonwildcard '1'" >> files/etc/config/dhcp
-          echo "    option localservice '1'" >> files/etc/config/dhcp
           echo "" >> files/etc/config/dhcp
           echo "config dhcp 'lan'" >> files/etc/config/dhcp
           echo "    option interface 'lan'" >> files/etc/config/dhcp
@@ -193,33 +187,29 @@ jobs:
             exit 1
           fi
           
-          echo "2. 文件系统检查:"
-          if grep -q "CONFIG_TARGET_ROOTFS_SQUASHFS=y" .config; then
-            echo "✅ 使用squashfs文件系统"
+          echo "2. dnsmasq配置检查:"
+          if grep -q "CONFIG_PACKAGE_dnsmasq=y" .config && grep -q "# CONFIG_PACKAGE_dnsmasq-full is not set" .config; then
+            echo "✅ 已启用dnsmasq，禁用dnsmasq-full"
           else
-            echo "❌ 错误：未启用squashfs"
+            echo "❌ dnsmasq配置错误"
+            exit 1
           fi
           
-          if grep -q "CONFIG_TARGET_ROOTFS_INITRAMFS is not set" .config; then
-            echo "✅ 已禁用initramfs（将生成sysupgrade固件）"
+          echo "3. Luci检查:"
+          if grep -q "# CONFIG_PACKAGE_luci is not set" .config; then
+            echo "✅ 已禁用Luci"
           else
-            echo "❌ 警告：未禁用initramfs"
+            echo "❌ Luci未禁用"
+            exit 1
           fi
           
-          echo "3. 无线驱动检查:"
-          if grep -q "CONFIG_PACKAGE_kmod-ath9k=y" .config; then
-            echo "✅ 已启用AR9331无线驱动(ath9k)"
+          echo "4. 文件系统检查:"
+          if grep -q "# CONFIG_TARGET_ROOTFS_INITRAMFS is not set" .config && grep -q "CONFIG_TARGET_ROOTFS_SQUASHFS=y" .config; then
+            echo "✅ 将生成sysupgrade固件"
           else
-            echo "❌ 错误：未启用无线驱动"
+            echo "❌ 文件系统配置错误"
+            exit 1
           fi
-          
-          echo "4. 网络配置:"
-          echo "   - 有线网口eth0配置为LAN口"
-          echo "   - IP地址: 192.168.1.1"
-          echo "   - 子网掩码: 255.255.255.0"
-          echo "   - 无线SSID: TP-WR703N-ImmortalWrt"
-          echo "   - 无线密码: 12345678"
-          echo "   - 无线信道: 11"
           
           echo "✅ 配置验证完成，开始编译..."
 
@@ -272,6 +262,8 @@ jobs:
             echo "❌ 错误：未找到sysupgrade固件"
             echo "查找结果:"
             find bin/targets -name "*.bin" -type f
+            echo "编译日志最后50行:"
+            tail -50 build.log 2>/dev/null || echo "无法读取build.log"
             exit 1
           fi
 
