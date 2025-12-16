@@ -1,7 +1,7 @@
 name: Build ImmortalWrt for TP-WR703N
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   push:
     branches:
       - main
@@ -104,7 +104,7 @@ jobs:
           # 创建自定义配置文件，将有线网口设置为LAN口，启用无线
           mkdir -p files/etc/config
           
-          # 创建network配置文件 - 将有线eth0和无线都加入LAN
+          # 创建network配置文件
           echo "config interface 'loopback'" > files/etc/config/network
           echo "    option ifname 'lo'" >> files/etc/config/network
           echo "    option proto 'static'" >> files/etc/config/network
@@ -122,7 +122,7 @@ jobs:
           echo "    option netmask '255.255.255.0'" >> files/etc/config/network
           echo "    option ip6assign '60'" >> files/etc/config/network
           
-          # 创建wireless配置文件 - 启用无线并设置为AP模式
+          # 创建wireless配置文件
           echo "config wifi-device 'radio0'" > files/etc/config/wireless
           echo "    option type 'mac80211'" >> files/etc/config/wireless
           echo "    option channel '11'" >> files/etc/config/wireless
@@ -157,9 +157,6 @@ jobs:
           echo "    option forward 'ACCEPT'" >> files/etc/config/firewall
           echo "    option masq '1'" >> files/etc/config/firewall
           echo "    option mtu_fix '1'" >> files/etc/config/firewall
-          echo "" >> files/etc/config/firewall
-          echo "config include" >> files/etc/config/firewall
-          echo "    option path '/etc/firewall.user'" >> files/etc/config/firewall
           
           # 创建DHCP配置文件
           echo "config dnsmasq" > files/etc/config/dhcp
