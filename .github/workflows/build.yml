@@ -126,7 +126,7 @@ CONFIG_EOF
         mkdir -p files/etc/config
         
         # network配置 - 唯一网口作为LAN口
-        cat > files/etc/config/network << 'NETWORK_EOF'
+        cat > files/etc/config/network << 'EOF'
 config interface 'loopback'
     option ifname 'lo'
     option proto 'static'
@@ -138,10 +138,10 @@ config interface 'lan'
     option proto 'static'
     option ipaddr '192.168.1.1'
     option netmask '255.255.255.0'
-NETWORK_EOF
+EOF
         
         # wireless配置 - 开启无线
-        cat > files/etc/config/wireless << 'WIRELESS_EOF'
+        cat > files/etc/config/wireless << 'EOF'
 config wifi-device 'radio0'
     option type 'mac80211'
     option channel '11'
@@ -158,10 +158,10 @@ config wifi-iface 'default_radio0'
     option ssid 'TP-WR703N-ImmortalWrt'
     option encryption 'psk2'
     option key '12345678'
-WIRELESS_EOF
+EOF
         
         # firewall配置
-        cat > files/etc/config/firewall << 'FIREWALL_EOF'
+        cat > files/etc/config/firewall << 'EOF'
 config defaults
     option syn_flood '1'
     option input 'ACCEPT'
@@ -174,7 +174,7 @@ config zone
     option input 'ACCEPT'
     option output 'ACCEPT'
     option forward 'ACCEPT'
-FIREWALL_EOF
+EOF
         
         # 配置验证
         echo "=== 配置验证 ==="
