@@ -45,14 +45,12 @@ jobs:
         run: |
           cd openwrt
           
-          # 彻底清理
           rm -f .config .config.old
           if [ -d "tmp" ]; then rm -rf tmp; fi
           
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 先只设置基本配置，不设置设备
           echo "CONFIG_TARGET_ath79=y" > .config
           echo "CONFIG_TARGET_ath79_tiny=y" >> .config
           echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
@@ -66,35 +64,28 @@ jobs:
           echo "CONFIG_BUILD_LOG=y" >> .config
           echo "CONFIG_TARGET_MULTI_PROFILE=n" >> .config
           
-          # 禁用不需要的包
           echo "# CONFIG_PACKAGE_luci is not set" >> .config
           echo "# CONFIG_PACKAGE_luci-ssl is not set" >> .config
           echo "# CONFIG_PACKAGE_firewall4 is not set" >> .config
           echo "# CONFIG_PACKAGE_nftables is not set" >> .config
           
-          # 先生成默认配置
           make defconfig
           
-          # 关键步骤：禁用所有设备，然后只启用TP-WR703N
           sed -i '/CONFIG_TARGET_ath79_tiny_DEVICE_/d' .config
           echo "# CONFIG_TARGET_ath79_tiny_DEVICE_buffalo_whar301n is not set" >> .config
           echo "# CONFIG_TARGET_ath79_tiny_DEVICE_buffalo_whr-g301n is not set" >> .config
           echo "# CONFIG_TARGET_ath79_tiny_DEVICE_gl-inet_gl-ar150 is not set" >> .config
           
-          # 启用TP-WR703N（正确的配置选项名称）
           echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y" >> .config
           
-          # 重新应用配置
           make defconfig
           
-          # 验证配置
           echo "=== 配置验证 ==="
           echo "选择的设备:"
           grep "CONFIG_TARGET_ath79_tiny_DEVICE" .config
           echo "固件分区大小:"
           grep "CONFIG_TARGET_ROOTFS_PARTSIZE" .config
           
-          # 检查是否确实选择了TP-WR703N
           if ! grep -q "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y" .config; then
             echo "错误：未正确选择TP-WR703N设备"
             cat .config | grep -A5 -B5 "tplink_tl-wr703n"
@@ -116,7 +107,6 @@ jobs:
           CPU_CORES=$(nproc)
           echo "使用 $CPU_CORES 个CPU核心进行编译"
           
-          # 编译TP-WR703N固件
           make -j$CPU_CORES PROFILE=tplink_tl-wr703n V=s 2>&1 | tee build.log || {
             echo "多线程编译失败，切换到单线程..."
             make -j1 PROFILE=tplink_tl-wr703n V=s 2>&1 | tee build-error.log
@@ -127,7 +117,6 @@ jobs:
         run: |
           cd openwrt
           
-          # 查找TP-WR703N固件
           FIRMWARE=$(find bin/targets -name "*703n*" -o -name "*wr703*" | head -1)
           
           if [ -z "$FIRMWARE" ]; then
@@ -138,7 +127,7 @@ jobs:
           fi
           
           SIZE=$(stat -c%s "$FIRMWARE")
-          MAX_SIZE=16777216  # 16MB
+          MAX_SIZE=16777216
           
           echo "找到固件: $FIRMWARE"
           echo "固件大小: $SIZE 字节 ($(($SIZE/1024/1024))MB)"
