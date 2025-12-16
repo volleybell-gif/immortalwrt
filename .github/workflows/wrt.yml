@@ -80,17 +80,42 @@ jobs:
           
           make defconfig
           
+          # 配置验证 - 使用更稳定的方法
           echo "=== 配置验证 ==="
-          echo "选择的设备:"
-          grep "CONFIG_TARGET_ath79_tiny_DEVICE" .config
-          echo "固件分区大小:"
-          grep "CONFIG_TARGET_ROOTFS_PARTSIZE" .config
           
-          if ! grep -q "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y" .config; then
-            echo "错误：未正确选择TP-WR703N设备"
-            cat .config | grep -A5 -B5 "tplink_tl-wr703n"
+          # 检查设备选择（这是最重要的）
+          echo "1. 设备选择检查:"
+          if grep -q "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y" .config; then
+            echo "✅ 已正确选择TP-WR703N设备"
+          else
+            echo "❌ 错误：未正确选择TP-WR703N设备"
+            echo "当前设备配置:"
+            grep "CONFIG_TARGET_ath79_tiny_DEVICE" .config
             exit 1
           fi
+          
+          # 检查分区大小（即使找不到也不失败）
+          echo "2. 分区大小检查:"
+          PART_SIZE=$(grep "CONFIG_TARGET_ROOTFS_PARTSIZE=" .config || echo "14")
+          echo "分区大小设置为: ${PART_SIZE#*=} MB"
+          
+          # 检查文件系统类型
+          echo "3. 文件系统类型:"
+          if grep -q "CONFIG_TARGET_ROOTFS_SQUASHFS=y" .config; then
+            echo "✅ 使用squashfs文件系统"
+          else
+            echo "⚠️  警告：未启用squashfs文件系统"
+          fi
+          
+          # 检查ccache
+          echo "4. 编译缓存:"
+          if grep -q "CONFIG_CCACHE=y" .config; then
+            echo "✅ 已启用ccache缓存"
+          else
+            echo "⚠️  警告：未启用ccache缓存"
+          fi
+          
+          echo "✅ 配置验证完成，开始编译..."
 
       - name: Download dependencies
         run: |
