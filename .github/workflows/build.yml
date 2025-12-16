@@ -4,14 +4,23 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+  schedule:
+    - cron: '0 2 * * *'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: openwrt-21.02
+  TARGET: ath79/tiny
+  DEVICE: tplink_tl-wr703n
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        thread_count: [4]
     
     steps:
     - name: Checkout repository
@@ -21,8 +30,8 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-ccache-${{ github.sha }}
-        restore-keys: ${{ runner.os }}-ccache-
+        key: ccache-${{ github.sha }}
+        restore-keys: ccache-
     
     - name: Clone ImmortalWrt source
       run: |
@@ -64,46 +73,51 @@ jobs:
         
         # 清理工作区
         rm -f .config .config.old
-        rm -rf tmp
+        if [ -d "tmp" ]; then rm -rf tmp; fi
         
         # 更新和安装 feeds
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-        # 创建.config文件 - 使用简单的echo方法
-        echo "CONFIG_TARGET_ath79=y" > .config
-        echo "CONFIG_TARGET_ath79_tiny=y" >> .config
-        echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14" >> .config
-        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
-        echo "CONFIG_TARGET_IMAGES_PAD=y" >> .config
-        echo "# CONFIG_TARGET_ROOTFS_INITRAMFS is not set" >> .config
-        echo "CONFIG_CCACHE=y" >> .config
-        echo "CONFIG_BUILD_LOG=y" >> .config
-        echo "CONFIG_KERNEL_BUILD_USER=\"ImmortalWrt\"" >> .config
-        echo "CONFIG_KERNEL_BUILD_DOMAIN=\"immortalwrt.org\"" >> .config
-        echo "CONFIG_DEBUG_INFO=n" >> .config
-        echo "CONFIG_USE_MKLIBS=n" >> .config
-        echo "CONFIG_TARGET_MULTI_PROFILE=n" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
-        echo "CONFIG_PACKAGE_wpad-basic=y" >> .config
-        echo "CONFIG_PACKAGE_hostapd-common=y" >> .config
-        echo "CONFIG_PACKAGE_iw=y" >> .config
-        echo "CONFIG_PACKAGE_iwinfo=y" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
-        echo "CONFIG_PACKAGE_firewall=y" >> .config
-        echo "CONFIG_PACKAGE_iptables=y" >> .config
-        echo "# CONFIG_PACKAGE_dnsmasq-full is not set" >> .config
-        echo "# CONFIG_PACKAGE_firewall4 is not set" >> .config
-        echo "# CONFIG_PACKAGE_nftables is not set" >> .config
-        echo "# CONFIG_PACKAGE_ppp-mod-pppoe is not set" >> .config
-        echo "# CONFIG_PACKAGE_luci is not set" >> .config
-        echo "# CONFIG_PACKAGE_luci-base is not set" >> .config
-        echo "# CONFIG_PACKAGE_luci-compat is not set" >> .config
-        echo "# CONFIG_PACKAGE_uhttpd is not set" >> .config
+        # 创建最小配置
+        cat > .config << 'CONFIG_EOF'
+CONFIG_TARGET_ath79=y
+CONFIG_TARGET_ath79_tiny=y
+CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=14
+CONFIG_TARGET_IMAGES_GZIP=y
+CONFIG_TARGET_IMAGES_PAD=y
+# CONFIG_TARGET_ROOTFS_INITRAMFS is not set
+CONFIG_CCACHE=y
+CONFIG_BUILD_LOG=y
+CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
+CONFIG_KERNEL_BUILD_DOMAIN="immortalwrt.org"
+CONFIG_DEBUG_INFO=n
+CONFIG_USE_MKLIBS=n
+CONFIG_TARGET_MULTI_PROFILE=n
+CONFIG_PACKAGE_kmod-ath=y
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_PACKAGE_kmod-ath9k-common=y
+CONFIG_PACKAGE_wpad-basic=y
+CONFIG_PACKAGE_hostapd-common=y
+CONFIG_PACKAGE_iw=y
+CONFIG_PACKAGE_iwinfo=y
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+CONFIG_PACKAGE_iptables-mod-ipopt=y
+CONFIG_PACKAGE_iptables-mod-nat-extra=y
+# CONFIG_PACKAGE_dnsmasq-full is not set
+# CONFIG_PACKAGE_firewall4 is not set
+# CONFIG_PACKAGE_nftables is not set
+# CONFIG_PACKAGE_ppp-mod-pppoe is not set
+# CONFIG_PACKAGE_luci is not set
+# CONFIG_PACKAGE_luci-base is not set
+# CONFIG_PACKAGE_luci-compat is not set
+# CONFIG_PACKAGE_uhttpd is not set
+CONFIG_EOF
         
         # 应用配置
         make defconfig
@@ -111,51 +125,82 @@ jobs:
         # 创建自定义配置文件
         mkdir -p files/etc/config
         
-        # network配置 - 使用简单的echo
-        echo "config interface 'loopback'" > files/etc/config/network
-        echo "    option ifname 'lo'" >> files/etc/config/network
-        echo "    option proto 'static'" >> files/etc/config/network
-        echo "    option ipaddr '127.0.0.1'" >> files/etc/config/network
-        echo "    option netmask '255.0.0.0'" >> files/etc/config/network
-        echo "" >> files/etc/config/network
-        echo "config interface 'lan'" >> files/etc/config/network
-        echo "    option ifname 'eth0'" >> files/etc/config/network
-        echo "    option proto 'static'" >> files/etc/config/network
-        echo "    option ipaddr '192.168.1.1'" >> files/etc/config/network
-        echo "    option netmask '255.255.255.0'" >> files/etc/config/network
+        # network配置 - 唯一网口作为LAN口
+        cat > files/etc/config/network << 'NETWORK_EOF'
+config interface 'loopback'
+    option ifname 'lo'
+    option proto 'static'
+    option ipaddr '127.0.0.1'
+    option netmask '255.0.0.0'
+
+config interface 'lan'
+    option ifname 'eth0'
+    option proto 'static'
+    option ipaddr '192.168.1.1'
+    option netmask '255.255.255.0'
+NETWORK_EOF
         
-        # wireless配置 - 使用简单的echo
-        echo "config wifi-device 'radio0'" > files/etc/config/wireless
-        echo "    option type 'mac80211'" >> files/etc/config/wireless
-        echo "    option channel '11'" >> files/etc/config/wireless
-        echo "    option hwmode '11g'" >> files/etc/config/wireless
-        echo "    option path 'platform/ar933x_wmac'" >> files/etc/config/wireless
-        echo "    option htmode 'HT20'" >> files/etc/config/wireless
-        echo "    option disabled '0'" >> files/etc/config/wireless
-        echo "    option txpower '20'" >> files/etc/config/wireless
-        echo "" >> files/etc/config/wireless
-        echo "config wifi-iface 'default_radio0'" >> files/etc/config/wireless
-        echo "    option device 'radio0'" >> files/etc/config/wireless
-        echo "    option network 'lan'" >> files/etc/config/wireless
-        echo "    option mode 'ap'" >> files/etc/config/wireless
-        echo "    option ssid 'TP-WR703N-ImmortalWrt'" >> files/etc/config/wireless
-        echo "    option encryption 'psk2'" >> files/etc/config/wireless
-        echo "    option key '12345678'" >> files/etc/config/wireless
+        # wireless配置 - 开启无线
+        cat > files/etc/config/wireless << 'WIRELESS_EOF'
+config wifi-device 'radio0'
+    option type 'mac80211'
+    option channel '11'
+    option hwmode '11g'
+    option path 'platform/ar933x_wmac'
+    option htmode 'HT20'
+    option disabled '0'
+    option txpower '20'
+
+config wifi-iface 'default_radio0'
+    option device 'radio0'
+    option network 'lan'
+    option mode 'ap'
+    option ssid 'TP-WR703N-ImmortalWrt'
+    option encryption 'psk2'
+    option key '12345678'
+WIRELESS_EOF
+        
+        # firewall配置
+        cat > files/etc/config/firewall << 'FIREWALL_EOF'
+config defaults
+    option syn_flood '1'
+    option input 'ACCEPT'
+    option output 'ACCEPT'
+    option forward 'REJECT'
+
+config zone
+    option name 'lan'
+    list network 'lan'
+    option input 'ACCEPT'
+    option output 'ACCEPT'
+    option forward 'ACCEPT'
+FIREWALL_EOF
         
         # 配置验证
         echo "=== 配置验证 ==="
-        echo "设备: TP-WR703N 已选中"
-        echo "固件: 将生成 squashfs-sysupgrade 固件"
-        echo "网络: 唯一网口 eth0 作为 LAN, IP: 192.168.1.1"
-        echo "无线: 已启用, SSID: TP-WR703N-ImmortalWrt"
-        echo "体积: 目标16MB固件"
+        echo "设备选择:"
+        grep "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n" .config && echo "✅ TP-WR703N 已选中"
+        echo "固件类型:"
+        grep "CONFIG_TARGET_ROOTFS_SQUASHFS" .config && echo "✅ 将生成 squashfs 固件"
+        echo "网络配置:"
+        if [ -f "files/etc/config/network" ]; then
+          echo "✅ 自定义 network 配置已创建"
+          echo "   网口: eth0 (LAN)"
+          echo "   IP地址: 192.168.1.1"
+        fi
+        echo "无线配置:"
+        if [ -f "files/etc/config/wireless" ]; then
+          echo "✅ 无线已启用"
+          echo "   SSID: TP-WR703N-ImmortalWrt"
+        fi
+        echo "✅ 配置完成"
     
     - name: Build with multi-threading
       run: |
         cd openwrt
         
         # 设置编译线程数
-        MAKE_JOBS=4
+        MAKE_JOBS=${{ matrix.thread_count }}
         
         # 启用ccache
         export CCACHE_DIR=~/.ccache
@@ -180,15 +225,18 @@ jobs:
         cd openwrt
         
         echo "=== 查找固件文件 ==="
-        find bin/targets -name "*.bin" -type f | grep -i wr703n || true
-        
-        # 检查固件
-        for file in bin/targets/ath79/tiny/*.bin; do
-          if [ -f "$file" ]; then
-            echo "找到固件: $file"
-            ls -lh "$file"
-          fi
+        find bin/targets -name "*wr703n*" -type f | while read file; do
+          echo "找到: $file"
+          ls -lh "$file"
         done
+        
+        # 检查 sysupgrade.bin
+        if find bin/targets -name "*sysupgrade*.bin" -type f | grep -q .; then
+          echo "✅ 找到 sysupgrade.bin 固件"
+        else
+          echo "❌ 未找到 sysupgrade.bin 固件"
+          exit 1
+        fi
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
