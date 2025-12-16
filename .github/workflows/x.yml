@@ -157,9 +157,6 @@ jobs:
           echo "    option forward 'ACCEPT'" >> files/etc/config/firewall
           echo "    option masq '1'" >> files/etc/config/firewall
           echo "    option mtu_fix '1'" >> files/etc/config/firewall
-          echo "" >> files/etc/config/firewall
-          echo "config include" >> files/etc/config/firewall
-          echo "    option path '/etc/firewall.user'" >> files/etc/config/firewall
           
           # 创建简化的DHCP配置文件
           echo "config dnsmasq" > files/etc/config/dhcp
