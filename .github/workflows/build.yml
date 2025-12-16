@@ -1,11 +1,11 @@
 name: Build ImmortalWrt for TP-WR703N
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
   push:
     branches: [ main ]
   schedule:
-    - cron: '0 2 * * *'  # 每天 UTC 02:00 自动构建
+    - cron: '0 2 * * *'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        thread_count: [4]  # 可根据实际CPU核心数调整，GitHub runner通常为4核
+        thread_count: [4]
     
     steps:
     - name: Checkout repository
@@ -32,14 +32,14 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-ccache-${{ env.DEVICE }}-${{ hashFiles('**/.config', '**/Makefile') }}
+        key: ${{ runner.os }}-ccache-${{ env.DEVICE }}-${{ github.sha }}
         restore-keys: |
           ${{ runner.os }}-ccache-${{ env.DEVICE }}-
           ${{ runner.os }}-ccache-
     
     - name: Clone ImmortalWrt source
       run: |
-        git clone --depth=1 --branch=${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} openwrt
+        git clone --depth=1 --branch=$REPO_BRANCH $REPO_URL openwrt
         
         # 应用必要的补丁（如果有）
         if [ -f patches/*.patch ]; then
@@ -47,6 +47,7 @@ jobs:
           for patch in ../patches/*.patch; do
             git apply $patch || true
           done
+          cd ..
         fi
     
     - name: Install dependencies
@@ -173,7 +174,7 @@ config interface 'loopback'
     option netmask '255.0.0.0'
 
 config interface 'lan'
-    option ifname 'eth0'  # 唯一网口作为LAN
+    option ifname 'eth0'
     option proto 'static'
     option ipaddr '192.168.1.1'
     option netmask '255.255.255.0'
@@ -323,13 +324,13 @@ EOF
         cd openwrt
         
         echo "=== 查找固件文件 ==="
-        find bin/targets/${{ env.TARGET }} -name "*wr703n*" -type f | while read file; do
+        find bin/targets/$TARGET -name "*wr703n*" -type f | while read file; do
           echo "找到: $file"
           ls -lh "$file"
         done
         
         # 特别检查 sysupgrade.bin
-        if find bin/targets/${{ env.TARGET }} -name "*sysupgrade*.bin" -type f | grep -q .; then
+        if find bin/targets/$TARGET -name "*sysupgrade*.bin" -type f | grep -q .; then
           echo "✅ 找到 sysupgrade.bin 固件"
         else
           echo "❌ 未找到 sysupgrade.bin 固件"
@@ -338,12 +339,12 @@ EOF
         
         # 显示最终固件大小
         echo "固件大小:"
-        find bin/targets/${{ env.TARGET }} -name "*sysupgrade*.bin" -exec ls -lh {} \;
+        find bin/targets/$TARGET -name "*sysupgrade*.bin" -exec ls -lh {} \;
         
         # 检查是否超过16M限制
-        find bin/targets/${{ env.TARGET }} -name "*sysupgrade*.bin" -exec sh -c '
+        find bin/targets/$TARGET -name "*sysupgrade*.bin" -exec sh -c '
           size=$(stat -c%s "$1")
-          max_size=$((16 * 1024 * 1024))  # 16MB
+          max_size=$((16 * 1024 * 1024))
           if [ $size -gt $max_size ]; then
             echo "⚠️  警告: 固件大小 ($((size/1024/1024))MB) 接近16M限制"
           else
@@ -356,13 +357,7 @@ EOF
       with:
         name: immortalwrt-wr703n-${{ github.sha }}
         path: |
-          openwrt/bin/targets/${{ env.TARGET }}/*.bin
-          openwrt/bin/targets/${{ env.TARGET }}/*.manifest
+          openwrt/bin/targets/$TARGET/*.bin
+          openwrt/bin/targets/$TARGET/*.manifest
           openwrt/build.log
         retention-days: 7
-    
-    - name: Upload to releases (optional)
-      if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: openwrt/bin/targets/${{ env.TARGET }}/*.bin
