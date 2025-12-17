@@ -12,7 +12,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04  # 使用最新 LTS 版本
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     
     steps:
@@ -62,20 +62,17 @@ jobs:
           wget \
           zlib1g-dev
         
-        # 设置 ccache
         ccache -o compression=true
         ccache -M 5G
         ccache -s
 
     - name: Configure for AR9331 16M
       run: |
-        # 选择 ath79/tiny 平台
+        # 基础配置
         cat > $CONFIG_FILE << 'EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_tiny=y
 CONFIG_TARGET_MULTI_PROFILE=y
-CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4=y
-CONFIG_TARGET_DEVICE_PACKAGES_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4=""
 CONFIG_TARGET_ROOTFS_PARTSIZE=128
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_ROOTFS_JFFS2=n
@@ -104,10 +101,12 @@ CONFIG_DEVEL=y
 CONFIG_CCACHE=y
 CONFIG_BUILD_LOG=y
 CONFIG_TARGET_IPV6=y
-CONFIG_MAKE_J="$(nproc)"
 EOF
 
-        # 设置网络配置
+        # 选择设备 (TP-Link WR741ND v4)
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4_16M=y" >> $CONFIG_FILE
+        
+        # 网络配置
         echo "CONFIG_TARGET_PREINIT_SUPPRESS_NOIFACE=y" >> $CONFIG_FILE
         echo "CONFIG_TARGET_PREINIT_TIMEOUT=5" >> $CONFIG_FILE
         echo "CONFIG_TARGET_PREINIT_IFNAME=eth0" >> $CONFIG_FILE
@@ -115,33 +114,24 @@ EOF
         echo "CONFIG_TARGET_PREINIT_NETMASK=255.255.255.0" >> $CONFIG_FILE
         echo "CONFIG_TARGET_PREINIT_BROADCAST=192.168.1.255" >> $CONFIG_FILE
         
-        # 16M 闪存支持
-        sed -i 's/CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4=y/# CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4 is not set/' $CONFIG_FILE
-        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4_16M=y" >> $CONFIG_FILE
+        # 多线程编译
+        echo "CONFIG_MAKE_J=\$(nproc)" >> $CONFIG_FILE
         
-        # 可选：如果需要 LuCI 界面
+        # 禁用不需要的包
         echo "# CONFIG_PACKAGE_luci is not set" >> $CONFIG_FILE
         echo "# CONFIG_PACKAGE_luci-base is not set" >> $CONFIG_FILE
         echo "# CONFIG_PACKAGE_luci-compat is not set" >> $CONFIG_FILE
 
     - name: Apply configuration
       run: |
-        # 显示配置文件
-        head -50 $CONFIG_FILE
-        echo "---"
-        tail -50 $CONFIG_FILE
-        
-        # 应用配置
+        cat $CONFIG_FILE
         make defconfig
         ./scripts/diffconfig.sh
 
     - name: Build firmware
       run: |
-        # 使用所有 CPU 核心编译
         CPU_CORES=$(nproc)
         echo "Using $CPU_CORES CPU cores for compilation"
-        
-        # 编译固件，启用详细输出
         make -j$CPU_CORES V=s 2>&1 | tee build.log || {
           echo "Build failed, checking for errors..."
           tail -100 build.log
@@ -150,19 +140,18 @@ EOF
 
     - name: List output files
       run: |
-        echo "Build output directory contents:"
+        echo "Build output:"
         find bin/targets/ -type f -name "*.bin" | sort
         echo ""
-        echo "AR9331 specific files:"
-        find bin/targets/ath79/tiny/ -type f -name "*sysupgrade*.bin" | head -5
+        echo "AR9331 sysupgrade files:"
+        find bin/targets/ath79/tiny/ -type f -name "*sysupgrade*.bin" | head -10
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-ar9331-16m-firmware
-        path: |
-          bin/targets/ath79/tiny/
-        compression-level: 0  # 不压缩，固件文件已经是压缩格式
+        path: bin/targets/ath79/tiny/
+        compression-level: 0
         if-no-files-found: error
         retention-days: 7
 
@@ -173,7 +162,6 @@ EOF
         name: build-logs
         path: |
           build.log
-          logs/
         retention-days: 3
 
     - name: Show ccache statistics
