@@ -128,15 +128,19 @@ jobs:
           echo ""
           echo "# 网络配置"
           echo "CONFIG_PACKAGE_dnsmasq=y"
+          echo "# CONFIG_PACKAGE_dnsmasq-full is not set"
           echo "CONFIG_PACKAGE_firewall=y"
+          echo "# CONFIG_PACKAGE_firewall4 is not set"
           echo "CONFIG_PACKAGE_iptables=y"
           echo "CONFIG_PACKAGE_iptables-mod-conntrack-extra=y"
           echo "CONFIG_PACKAGE_iptables-mod-ipopt=y"
           echo "CONFIG_PACKAGE_iptables-mod-nat-extra=y"
+          echo "# CONFIG_PACKAGE_nftables is not set"
           echo "CONFIG_PACKAGE_wpad-basic=y"
           echo "CONFIG_PACKAGE_hostapd-common=y"
           echo "CONFIG_PACKAGE_iw=y"
           echo "CONFIG_PACKAGE_iwinfo=y"
+          echo "# CONFIG_PACKAGE_ppp-mod-pppoe is not set"
           echo ""
           echo "# 无线支持"
           echo "CONFIG_PACKAGE_kmod-ath=y"
@@ -156,10 +160,50 @@ jobs:
           echo "# 文件系统"
           echo "CONFIG_PACKAGE_kmod-fs-squashfs=y"
           echo "CONFIG_PACKAGE_kmod-nls-base=y"
+          echo ""
+          echo "# 明确禁用不需要的包，避免冲突"
+          echo "# CONFIG_PACKAGE_luci is not set"
+          echo "# CONFIG_PACKAGE_luci-base is not set"
+          echo "# CONFIG_PACKAGE_luci-compat is not set"
+          echo "# CONFIG_PACKAGE_uhttpd is not set"
         } > .config
         
         # 应用配置
+        echo "运行 make defconfig..."
         make defconfig
+        
+        # 再次确认关键配置
+        echo "=== 检查关键配置 ==="
+        if grep -q "CONFIG_PACKAGE_dnsmasq=y" .config; then
+          echo "✅ dnsmasq 已启用"
+        else
+          echo "❌ dnsmasq 未启用，强制启用"
+          echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
+        fi
+        
+        if grep -q "CONFIG_PACKAGE_dnsmasq-full=y" .config; then
+          echo "❌ dnsmasq-full 已启用，需要禁用"
+          sed -i '/CONFIG_PACKAGE_dnsmasq-full=y/d' .config
+          echo "# CONFIG_PACKAGE_dnsmasq-full is not set" >> .config
+        else
+          echo "✅ dnsmasq-full 已禁用"
+        fi
+        
+        if grep -q "CONFIG_PACKAGE_luci-compat=y" .config; then
+          echo "❌ luci-compat 已启用，需要禁用"
+          sed -i '/CONFIG_PACKAGE_luci-compat=y/d' .config
+          echo "# CONFIG_PACKAGE_luci-compat is not set" >> .config
+        else
+          echo "✅ luci-compat 已禁用"
+        fi
+        
+        if grep -q "CONFIG_PACKAGE_ppp-mod-pppoe=y" .config; then
+          echo "❌ ppp-mod-pppoe 已启用，需要禁用"
+          sed -i '/CONFIG_PACKAGE_ppp-mod-pppoe=y/d' .config
+          echo "# CONFIG_PACKAGE_ppp-mod-pppoe is not set" >> .config
+        else
+          echo "✅ ppp-mod-pppoe 已禁用"
+        fi
         
         # 创建自定义配置文件目录
         mkdir -p files/etc/config
@@ -267,7 +311,7 @@ jobs:
           echo "✅ 编译成功"
         else
           echo "❌ 编译失败，查看错误日志..."
-          tail -100 build.log
+          tail -200 build.log | grep -A20 -B20 "error\|Error\|ERROR\|fail\|Fail\|FAIL"
           exit 1
         fi
         
