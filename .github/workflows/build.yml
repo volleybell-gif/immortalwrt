@@ -3,7 +3,7 @@ name: Build ImmortalWrt 21.02 for AR9331 16M
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
   schedule:
     - cron: '0 2 * * 0'
 
@@ -68,148 +68,94 @@ jobs:
 
     - name: Configure for AR9331 16M
       run: |
-        # 基本配置 - 使用 diffconfig 方式
-        cat > diffconfig << 'EOF'
-CONFIG_TARGET_ath79=y
-CONFIG_TARGET_ath79_tiny=y
-CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4=y
-CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4_16M=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=128
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_JFFS2=n
-CONFIG_VMLINUX_COMPRESSION_NONE=y
-CONFIG_PACKAGE_kmod-ath9k=y
-CONFIG_PACKAGE_kmod-ath9k-common=y
-CONFIG_PACKAGE_hostapd-common=y
-CONFIG_PACKAGE_wpad-basic-wolfssl=y
-CONFIG_PACKAGE_iw=y
-CONFIG_PACKAGE_wireless-tools=y
-CONFIG_PACKAGE_dnsmasq-full=y
-CONFIG_PACKAGE_dnsmasq_full_dhcp=y
-CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
-CONFIG_PACKAGE_dropbear=y
-CONFIG_PACKAGE_firewall=y
-CONFIG_PACKAGE_iptables=y
-CONFIG_PACKAGE_ip6tables=y
-CONFIG_PACKAGE_ppp=y
-CONFIG_PACKAGE_ppp-mod-pppoe=y
-CONFIG_PACKAGE_odhcpd-ipv6only=y
-CONFIG_PACKAGE_odhcp6c=y
-CONFIG_PACKAGE_kmod-ipt-offload=y
-CONFIG_ATH_USER_REGD=y
-CONFIG_PACKAGE_ATH_DEBUG=y
-CONFIG_DEVEL=y
-CONFIG_CCACHE=y
-CONFIG_BUILD_LOG=y
-CONFIG_TARGET_IPV6=y
-CONFIG_MAKE_J="$(nproc)"
-CONFIG_SIGNED_PACKAGES=n
-CONFIG_PACKAGE_usign=n
-EOF
+        # 创建基本配置
+        echo "CONFIG_TARGET_ath79=y" > $CONFIG_FILE
+        echo "CONFIG_TARGET_ath79_tiny=y" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4_16M=y" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=128" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_ROOTFS_JFFS2=n" >> $CONFIG_FILE
+        echo "CONFIG_VMLINUX_COMPRESSION_NONE=y" >> $CONFIG_FILE
+        
+        # 无线配置
+        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_hostapd-common=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_wpad-basic-wolfssl=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_iw=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_wireless-tools=y" >> $CONFIG_FILE
+        echo "CONFIG_ATH_USER_REGD=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_ATH_DEBUG=y" >> $CONFIG_FILE
+        
+        # 网络配置
+        echo "CONFIG_PACKAGE_dnsmasq-full=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_dnsmasq_full_dhcp=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_dropbear=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_firewall=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_iptables=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_ip6tables=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_ppp=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_ppp-mod-pppoe=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_odhcpd-ipv6only=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_odhcp6c=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_kmod-ipt-offload=y" >> $CONFIG_FILE
+        
+        # 编译配置
+        echo "CONFIG_DEVEL=y" >> $CONFIG_FILE
+        echo "CONFIG_CCACHE=y" >> $CONFIG_FILE
+        echo "CONFIG_BUILD_LOG=y" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_IPV6=y" >> $CONFIG_FILE
+        echo "CONFIG_MAKE_J=\$(nproc)" >> $CONFIG_FILE
+        
+        # 禁用签名以避免 usign 错误
+        echo "CONFIG_SIGNED_PACKAGES=n" >> $CONFIG_FILE
+        
+        # 网络设置
+        echo "CONFIG_TARGET_PREINIT_SUPPRESS_NOIFACE=y" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_PREINIT_TIMEOUT=5" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_PREINIT_IFNAME=eth0" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_PREINIT_IP=192.168.1.1" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_PREINIT_NETMASK=255.255.255.0" >> $CONFIG_FILE
+        echo "CONFIG_TARGET_PREINIT_BROADCAST=192.168.1.255" >> $CONFIG_FILE
+        
+        # 禁用 LuCI（可选）
+        echo "# CONFIG_PACKAGE_luci is not set" >> $CONFIG_FILE
 
-        # 应用配置
-        make defconfig
-        cat diffconfig >> .config
-        make defconfig
-        ./scripts/diffconfig.sh > diffconfig.applied
-
-    - name: Configure network settings
+    - name: Apply configuration
       run: |
-        # 设置网络配置
-        echo "CONFIG_TARGET_PREINIT_SUPPRESS_NOIFACE=y" >> .config
-        echo "CONFIG_TARGET_PREINIT_TIMEOUT=5" >> .config
-        echo "CONFIG_TARGET_PREINIT_IFNAME=eth0" >> .config
-        echo "CONFIG_TARGET_PREINIT_IP=192.168.1.1" >> .config
-        echo "CONFIG_TARGET_PREINIT_NETMASK=255.255.255.0" >> .config
-        echo "CONFIG_TARGET_PREINIT_BROADCAST=192.168.1.255" >> .config
-        
-        # 确保只编译我们需要的设备
-        echo "CONFIG_TARGET_MULTI_PROFILE=n" >> .config
-        
-        # 重新应用配置
+        echo "Applying configuration..."
         make defconfig
+        ./scripts/diffconfig.sh
 
     - name: Build firmware
       run: |
         CPU_CORES=$(nproc)
         echo "Using $CPU_CORES CPU cores for compilation"
         
-        # 只编译固件，不编译package索引
-        make -j$CPU_CORES target/linux/install V=s 2>&1 | tee build.log || {
-          echo "Build may have warnings, checking for firmware files..."
-          # 即使有错误也继续，因为可能已经生成了固件
-        }
+        # 编译内核和基础系统
+        make -j$CPU_CORES V=s 2>&1 | tee build.log
         
-        # 单独编译image
-        echo "Building firmware images..."
-        make -j$CPU_CORES target/linux/ath79/image/install V=s 2>&1 | tee image.log
+        # 检查是否有固件生成
+        if find bin/targets/ath79/tiny/ -name "*.bin" 2>/dev/null | grep -q .; then
+          echo "Firmware files found!"
+        else
+          echo "No firmware files found, trying alternative build method..."
+          # 尝试只构建目标
+          make -j$CPU_CORES target/install V=s 2>&1 | tee build2.log
+        fi
 
-    - name: Check for firmware files
+    - name: Find and list firmware
       run: |
         echo "Searching for firmware files..."
-        # 搜索所有可能的固件文件
-        find bin/targets/ -name "*.bin" -o -name "*.img" -o -name "*.tar" 2>/dev/null | while read file; do
-          echo "Found: $file"
-          ls -lh "$file"
-        done
-        
+        find . -type f \( -name "*.bin" -o -name "*.trx" -o -name "*.img" \) 2>/dev/null | grep -v "\.git" | head -20
         echo ""
-        echo "Searching in ath79/tiny directory..."
+        echo "Checking ath79/tiny directory..."
         if [ -d bin/targets/ath79/tiny/ ]; then
           ls -la bin/targets/ath79/tiny/
           echo ""
-          echo "Looking for sysupgrade files..."
-          find bin/targets/ath79/tiny/ -name "*sysupgrade*" -type f 2>/dev/null
-          echo ""
-          echo "Looking for factory files..."
-          find bin/targets/ath79/tiny/ -name "*factory*" -type f 2>/dev/null
-        fi
-        
-        echo ""
-        echo "Checking build directory..."
-        if [ -d build_dir/target-mips_24kc_musl/linux-ath79_tiny/ ]; then
-          echo "Build directory exists"
-          find build_dir/target-mips_24kc_musl/linux-ath79_tiny/ -name "*.bin" -type f 2>/dev/null | head -10
-        fi
-
-    - name: Manual firmware packaging
-      run: |
-        # 如果自动打包失败，尝试手动创建固件
-        echo "Attempting manual firmware packaging..."
-        
-        # 检查是否生成了内核和rootfs
-        KERNEL_PATH=""
-        ROOTFS_PATH=""
-        
-        # 查找内核文件
-        if [ -f "build_dir/target-mips_24kc_musl/linux-ath79_tiny/vmlinux-initramfs" ]; then
-          KERNEL_PATH="build_dir/target-mips_24kc_musl/linux-ath79_tiny/vmlinux-initramfs"
-        elif [ -f "build_dir/target-mips_24kc_musl/linux-ath79_tiny/vmlinux" ]; then
-          KERNEL_PATH="build_dir/target-mips_24kc_musl/linux-ath79_tiny/vmlinux"
-        fi
-        
-        # 查找rootfs文件
-        if [ -f "build_dir/target-mips_24kc_musl/linux-ath79_tiny/root.squashfs" ]; then
-          ROOTFS_PATH="build_dir/target-mips_24kc_musl/linux-ath79_tiny/root.squashfs"
-        fi
-        
-        if [ -n "$KERNEL_PATH" ] && [ -n "$ROOTFS_PATH" ]; then
-          echo "Found kernel and rootfs, creating firmware..."
-          mkdir -p bin/targets/ath79/tiny/
-          
-          # 创建简单的固件组合（这只是示例，实际需要根据设备格式）
-          cat "$KERNEL_PATH" "$ROOTFS_PATH" > "bin/targets/ath79/tiny/immortalwrt-ar9331-16m-combined.bin" 2>/dev/null || true
-          
-          # 复制原始文件
-          cp "$KERNEL_PATH" "bin/targets/ath79/tiny/kernel.bin" 2>/dev/null || true
-          cp "$ROOTFS_PATH" "bin/targets/ath79/tiny/rootfs.squashfs" 2>/dev/null || true
-          
-          echo "Manual packaging complete"
-          ls -la bin/targets/ath79/tiny/
-        else
-          echo "Cannot find kernel or rootfs for manual packaging"
-          echo "Kernel: $KERNEL_PATH"
-          echo "RootFS: $ROOTFS_PATH"
+          echo "Files in bin/targets/ath79/tiny/:"
+          find bin/targets/ath79/tiny/ -type f | head -20
         fi
 
     - name: Upload firmware artifact
@@ -218,8 +164,6 @@ EOF
         name: immortalwrt-ar9331-16m-firmware
         path: |
           bin/targets/ath79/tiny/
-          build_dir/target-mips_24kc_musl/linux-ath79_tiny/*.bin
-          build_dir/target-mips_24kc_musl/linux-ath79_tiny/*.squashfs
         compression-level: 0
         if-no-files-found: warn
 
@@ -230,9 +174,7 @@ EOF
         name: build-logs
         path: |
           build.log
-          image.log
-          diffconfig.applied
-          .config
+          ${{ env.CONFIG_FILE }}
 
     - name: Show ccache statistics
       if: success()
