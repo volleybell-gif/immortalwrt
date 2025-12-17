@@ -79,93 +79,91 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-        # 创建最小配置 - 16M闪存，squashfs文件系统
-        cat > .config << 'CONFIG_EOF'
-CONFIG_TARGET_ath79=y
-CONFIG_TARGET_ath79_tiny=y
-CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1=y
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=14
-CONFIG_TARGET_IMAGES_GZIP=y
-CONFIG_TARGET_IMAGES_PAD=y
-CONFIG_CCACHE=y
-CONFIG_BUILD_LOG=y
-CONFIG_DEBUG_INFO=n
-CONFIG_USE_MKLIBS=n
-CONFIG_TARGET_MULTI_PROFILE=n
-CONFIG_IMAGEOPT=y
-CONFIG_TARGET_IMAGES_INCLUDE_KERNEL=y
-CONFIG_TARGET_IMAGES_INCLUDE_DTB=y
-CONFIG_TARGET_IMAGES_INCLUDE_ROOTFS=y
-
-# 基础系统
-CONFIG_PACKAGE_busybox=y
-CONFIG_BUSYBOX_CUSTOM=y
-CONFIG_PACKAGE_base-files=y
-CONFIG_PACKAGE_block-mount=y
-CONFIG_PACKAGE_dropbear=y
-CONFIG_PACKAGE_fstools=y
-CONFIG_PACKAGE_jsonfilter=y
-CONFIG_PACKAGE_libc=y
-CONFIG_PACKAGE_libgcc=y
-CONFIG_PACKAGE_libpthread=y
-CONFIG_PACKAGE_librt=y
-CONFIG_PACKAGE_libubox=y
-CONFIG_PACKAGE_libuci=y
-CONFIG_PACKAGE_logd=y
-CONFIG_PACKAGE_mtd=y
-CONFIG_PACKAGE_netifd=y
-CONFIG_PACKAGE_opkg=y
-CONFIG_PACKAGE_procd=y
-CONFIG_PACKAGE_swconfig=y
-CONFIG_PACKAGE_uboot-envtools=y
-CONFIG_PACKAGE_ubus=y
-CONFIG_PACKAGE_ubusd=y
-CONFIG_PACKAGE_uci=y
-CONFIG_PACKAGE_urandom-seed=y
-CONFIG_PACKAGE_urngd=y
-CONFIG_PACKAGE_usign=y
-
-# 网络配置
-CONFIG_PACKAGE_dnsmasq=y
-CONFIG_PACKAGE_firewall=y
-CONFIG_PACKAGE_iptables=y
-CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
-CONFIG_PACKAGE_iptables-mod-ipopt=y
-CONFIG_PACKAGE_iptables-mod-nat-extra=y
-CONFIG_PACKAGE_wpad-basic=y
-CONFIG_PACKAGE_hostapd-common=y
-CONFIG_PACKAGE_iw=y
-CONFIG_PACKAGE_iwinfo=y
-
-# 无线支持
-CONFIG_PACKAGE_kmod-ath=y
-CONFIG_PACKAGE_kmod-ath9k=y
-CONFIG_PACKAGE_kmod-ath9k-common=y
-CONFIG_PACKAGE_kmod-cfg80211=y
-CONFIG_PACKAGE_kmod-mac80211=y
-
-# 内核模块
-CONFIG_PACKAGE_kmod-gpio-button-hotplug=y
-CONFIG_PACKAGE_kmod-ipt-conntrack=y
-CONFIG_PACKAGE_kmod-nf-conntrack=y
-CONFIG_PACKAGE_kmod-nf-nat=y
-CONFIG_PACKAGE_kmod-usb-core=y
-CONFIG_PACKAGE_kmod-usb2=y
-
-# 文件系统
-CONFIG_PACKAGE_kmod-fs-squashfs=y
-CONFIG_PACKAGE_kmod-nls-base=y
-CONFIG_EOF
+        # 创建 .config 文件 - 避免使用 heredoc
+        echo "CONFIG_TARGET_ath79=y" > .config
+        echo "CONFIG_TARGET_ath79_tiny=y" >> .config
+        echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14" >> .config
+        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
+        echo "CONFIG_TARGET_IMAGES_PAD=y" >> .config
+        echo "CONFIG_CCACHE=y" >> .config
+        echo "CONFIG_BUILD_LOG=y" >> .config
+        echo "CONFIG_DEBUG_INFO=n" >> .config
+        echo "CONFIG_USE_MKLIBS=n" >> .config
+        echo "CONFIG_TARGET_MULTI_PROFILE=n" >> .config
+        echo "CONFIG_IMAGEOPT=y" >> .config
+        echo "CONFIG_TARGET_IMAGES_INCLUDE_KERNEL=y" >> .config
+        echo "CONFIG_TARGET_IMAGES_INCLUDE_DTB=y" >> .config
+        echo "CONFIG_TARGET_IMAGES_INCLUDE_ROOTFS=y" >> .config
+        echo "" >> .config
+        echo "# 基础系统" >> .config
+        echo "CONFIG_PACKAGE_busybox=y" >> .config
+        echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
+        echo "CONFIG_PACKAGE_base-files=y" >> .config
+        echo "CONFIG_PACKAGE_block-mount=y" >> .config
+        echo "CONFIG_PACKAGE_dropbear=y" >> .config
+        echo "CONFIG_PACKAGE_fstools=y" >> .config
+        echo "CONFIG_PACKAGE_jsonfilter=y" >> .config
+        echo "CONFIG_PACKAGE_libc=y" >> .config
+        echo "CONFIG_PACKAGE_libgcc=y" >> .config
+        echo "CONFIG_PACKAGE_libpthread=y" >> .config
+        echo "CONFIG_PACKAGE_librt=y" >> .config
+        echo "CONFIG_PACKAGE_libubox=y" >> .config
+        echo "CONFIG_PACKAGE_libuci=y" >> .config
+        echo "CONFIG_PACKAGE_logd=y" >> .config
+        echo "CONFIG_PACKAGE_mtd=y" >> .config
+        echo "CONFIG_PACKAGE_netifd=y" >> .config
+        echo "CONFIG_PACKAGE_opkg=y" >> .config
+        echo "CONFIG_PACKAGE_procd=y" >> .config
+        echo "CONFIG_PACKAGE_swconfig=y" >> .config
+        echo "CONFIG_PACKAGE_uboot-envtools=y" >> .config
+        echo "CONFIG_PACKAGE_ubus=y" >> .config
+        echo "CONFIG_PACKAGE_ubusd=y" >> .config
+        echo "CONFIG_PACKAGE_uci=y" >> .config
+        echo "CONFIG_PACKAGE_urandom-seed=y" >> .config
+        echo "CONFIG_PACKAGE_urngd=y" >> .config
+        echo "CONFIG_PACKAGE_usign=y" >> .config
+        echo "" >> .config
+        echo "# 网络配置" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
+        echo "CONFIG_PACKAGE_firewall=y" >> .config
+        echo "CONFIG_PACKAGE_iptables=y" >> .config
+        echo "CONFIG_PACKAGE_iptables-mod-conntrack-extra=y" >> .config
+        echo "CONFIG_PACKAGE_iptables-mod-ipopt=y" >> .config
+        echo "CONFIG_PACKAGE_iptables-mod-nat-extra=y" >> .config
+        echo "CONFIG_PACKAGE_wpad-basic=y" >> .config
+        echo "CONFIG_PACKAGE_hostapd-common=y" >> .config
+        echo "CONFIG_PACKAGE_iw=y" >> .config
+        echo "CONFIG_PACKAGE_iwinfo=y" >> .config
+        echo "" >> .config
+        echo "# 无线支持" >> .config
+        echo "CONFIG_PACKAGE_kmod-ath=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-cfg80211=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mac80211=y" >> .config
+        echo "" >> .config
+        echo "# 内核模块" >> .config
+        echo "CONFIG_PACKAGE_kmod-gpio-button-hotplug=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-ipt-conntrack=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-nf-conntrack=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-nf-nat=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb-core=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb2=y" >> .config
+        echo "" >> .config
+        echo "# 文件系统" >> .config
+        echo "CONFIG_PACKAGE_kmod-fs-squashfs=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-nls-base=y" >> .config
         
         # 应用配置
         make defconfig
         
-        # 创建自定义配置文件
+        # 创建自定义配置文件目录
         mkdir -p files/etc/config
         
         # network配置 - 唯一网口作为LAN口，IP: 192.168.1.1
-        cat > files/etc/config/network << 'NETWORK_EOF'
+        cat > files/etc/config/network << "EOF"
 config interface 'loopback'
     option ifname 'lo'
     option proto 'static'
@@ -178,10 +176,10 @@ config interface 'lan'
     option ipaddr '192.168.1.1'
     option netmask '255.255.255.0'
     option ip6assign '60'
-NETWORK_EOF
+EOF
         
         # wireless配置 - 开启无线
-        cat > files/etc/config/wireless << 'WIRELESS_EOF'
+        cat > files/etc/config/wireless << "EOF"
 config wifi-device 'radio0'
     option type 'mac80211'
     option channel '11'
@@ -198,10 +196,10 @@ config wifi-iface 'default_radio0'
     option ssid 'TP-WR703N-ImmortalWrt'
     option encryption 'psk2'
     option key '12345678'
-WIRELESS_EOF
+EOF
         
         # firewall配置
-        cat > files/etc/config/firewall << 'FIREWALL_EOF'
+        cat > files/etc/config/firewall << "EOF"
 config defaults
     option syn_flood '1'
     option input 'ACCEPT'
@@ -214,10 +212,10 @@ config zone
     option input 'ACCEPT'
     option output 'ACCEPT'
     option forward 'ACCEPT'
-FIREWALL_EOF
+EOF
         
         # system配置
-        cat > files/etc/config/system << 'SYSTEM_EOF'
+        cat > files/etc/config/system << "EOF"
 config system
     option hostname 'TP-WR703N'
     option timezone 'CST-8'
@@ -227,7 +225,7 @@ config timeserver 'ntp'
     list server 'time1.cloud.tencent.com'
     list server 'time2.cloud.tencent.com'
     list server 'time3.cloud.tencent.com'
-SYSTEM_EOF
+EOF
         
         echo "✅ 配置完成"
         echo "设备: TP-WR703N"
@@ -325,7 +323,7 @@ SYSTEM_EOF
         
         # 创建固件信息文件
         echo "=== 创建固件信息 ==="
-        cat > firmware-info.txt << 'INFO_EOF'
+        cat > firmware-info.txt << "EOF"
 设备: TP-WR703N
 固件: ImmortalWrt $(date +%Y%m%d)
 分支: openwrt-21.02
@@ -335,7 +333,7 @@ IP地址: 192.168.1.1
 无线SSID: TP-WR703N-ImmortalWrt
 无线密码: 12345678
 编译时间: $(date)
-INFO_EOF
+EOF
         
         echo "固件信息已保存到 firmware-info.txt"
     
