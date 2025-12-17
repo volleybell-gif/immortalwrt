@@ -1,11 +1,11 @@
 name: Build ImmortalWrt for TP-WR703N
 
 on:
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
   push:
     branches: [main]
   schedule:
-    - cron: '0 2 * * *'  # 每天凌晨2点自动编译
+    - cron: '0 2 * * *'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        thread_count: [4]  # 4线程编译，可调整为2或8
+        thread_count: [4]
     
     steps:
     - name: Checkout repository
@@ -80,7 +80,7 @@ jobs:
         ./scripts/feeds install -a
         
         # 创建最小配置 - 16M闪存，squashfs文件系统
-        cat > .config << 'EOF'
+        cat > .config << 'CONFIG_EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_tiny=y
 CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1=y
@@ -156,7 +156,7 @@ CONFIG_PACKAGE_kmod-usb2=y
 # 文件系统
 CONFIG_PACKAGE_kmod-fs-squashfs=y
 CONFIG_PACKAGE_kmod-nls-base=y
-EOF
+CONFIG_EOF
         
         # 应用配置
         make defconfig
@@ -165,7 +165,7 @@ EOF
         mkdir -p files/etc/config
         
         # network配置 - 唯一网口作为LAN口，IP: 192.168.1.1
-        cat > files/etc/config/network << 'EOF'
+        cat > files/etc/config/network << 'NETWORK_EOF'
 config interface 'loopback'
     option ifname 'lo'
     option proto 'static'
@@ -178,10 +178,10 @@ config interface 'lan'
     option ipaddr '192.168.1.1'
     option netmask '255.255.255.0'
     option ip6assign '60'
-EOF
+NETWORK_EOF
         
         # wireless配置 - 开启无线
-        cat > files/etc/config/wireless << 'EOF'
+        cat > files/etc/config/wireless << 'WIRELESS_EOF'
 config wifi-device 'radio0'
     option type 'mac80211'
     option channel '11'
@@ -198,10 +198,10 @@ config wifi-iface 'default_radio0'
     option ssid 'TP-WR703N-ImmortalWrt'
     option encryption 'psk2'
     option key '12345678'
-EOF
+WIRELESS_EOF
         
         # firewall配置
-        cat > files/etc/config/firewall << 'EOF'
+        cat > files/etc/config/firewall << 'FIREWALL_EOF'
 config defaults
     option syn_flood '1'
     option input 'ACCEPT'
@@ -214,10 +214,10 @@ config zone
     option input 'ACCEPT'
     option output 'ACCEPT'
     option forward 'ACCEPT'
-EOF
+FIREWALL_EOF
         
         # system配置
-        cat > files/etc/config/system << 'EOF'
+        cat > files/etc/config/system << 'SYSTEM_EOF'
 config system
     option hostname 'TP-WR703N'
     option timezone 'CST-8'
@@ -227,7 +227,7 @@ config timeserver 'ntp'
     list server 'time1.cloud.tencent.com'
     list server 'time2.cloud.tencent.com'
     list server 'time3.cloud.tencent.com'
-EOF
+SYSTEM_EOF
         
         echo "✅ 配置完成"
         echo "设备: TP-WR703N"
@@ -325,7 +325,7 @@ EOF
         
         # 创建固件信息文件
         echo "=== 创建固件信息 ==="
-        cat > firmware-info.txt << INFO
+        cat > firmware-info.txt << 'INFO_EOF'
 设备: TP-WR703N
 固件: ImmortalWrt $(date +%Y%m%d)
 分支: openwrt-21.02
@@ -335,7 +335,7 @@ IP地址: 192.168.1.1
 无线SSID: TP-WR703N-ImmortalWrt
 无线密码: 12345678
 编译时间: $(date)
-INFO
+INFO_EOF
         
         echo "固件信息已保存到 firmware-info.txt"
     
@@ -349,7 +349,7 @@ INFO
           openwrt/firmware-info.txt
           openwrt/build.log
         retention-days: 7
-      
+    
     - name: Upload on failure
       if: failure()
       uses: actions/upload-artifact@v4
