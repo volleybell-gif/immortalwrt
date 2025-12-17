@@ -1,4 +1,4 @@
-name: Build ImmortalWrt for TP-WR703N
+name: Build ImmortalWrt for TP-WR703N (16MB Mod)
 
 on:
   workflow_dispatch:
@@ -79,13 +79,13 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-        # 创建 .config 文件 - 使用echo命令避免heredoc
+        # 创建 .config 文件 - 针对16MB改装闪存
         {
           echo "CONFIG_TARGET_ath79=y"
           echo "CONFIG_TARGET_ath79_tiny=y"
           echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1=y"
           echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y"
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14"
+          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14"  # 14MB分区，为16MB闪存优化
           echo "CONFIG_TARGET_IMAGES_GZIP=y"
           echo "CONFIG_TARGET_IMAGES_PAD=y"
           echo "CONFIG_CCACHE=y"
@@ -97,10 +97,14 @@ jobs:
           echo "CONFIG_TARGET_IMAGES_INCLUDE_KERNEL=y"
           echo "CONFIG_TARGET_IMAGES_INCLUDE_DTB=y"
           echo "CONFIG_TARGET_IMAGES_INCLUDE_ROOTFS=y"
+          echo "# CONFIG_TARGET_ROOTFS_INITRAMFS is not set"
+          echo "CONFIG_KERNEL_GZIP=y"
           echo ""
           echo "# 基础系统"
           echo "CONFIG_PACKAGE_busybox=y"
           echo "CONFIG_BUSYBOX_CUSTOM=y"
+          echo "CONFIG_BUSYBOX_DEFAULT_FEATURE_EDITING=y"
+          echo "CONFIG_BUSYBOX_DEFAULT_FEATURE_EDITING_SAVEHISTORY=y"
           echo "CONFIG_PACKAGE_base-files=y"
           echo "CONFIG_PACKAGE_block-mount=y"
           echo "CONFIG_PACKAGE_dropbear=y"
@@ -158,52 +162,52 @@ jobs:
           echo "CONFIG_PACKAGE_kmod-usb2=y"
           echo ""
           echo "# 文件系统"
+          echo "CONFIG_PACKAGE_kmod-fs-ext4=y"
           echo "CONFIG_PACKAGE_kmod-fs-squashfs=y"
           echo "CONFIG_PACKAGE_kmod-nls-base=y"
+          echo "CONFIG_PACKAGE_kmod-nls-utf8=y"
+          echo ""
+          echo "# USB支持（16MB闪存可以加入更多功能）"
+          echo "CONFIG_PACKAGE_kmod-usb-storage=y"
+          echo "CONFIG_PACKAGE_kmod-usb-ohci=y"
+          echo "CONFIG_PACKAGE_kmod-usb-uhci=y"
+          echo "CONFIG_PACKAGE_kmod-fs-ext4=y"
+          echo "CONFIG_PACKAGE_kmod-fs-vfat=y"
+          echo "CONFIG_PACKAGE_block-mount=y"
+          echo ""
+          echo "# 系统工具"
+          echo "CONFIG_PACKAGE_bash=y"
+          echo "CONFIG_PACKAGE_coreutils=y"
+          echo "CONFIG_PACKAGE_curl=y"
+          echo "CONFIG_PACKAGE_htop=y"
+          echo "CONFIG_PACKAGE_nano=y"
+          echo "CONFIG_PACKAGE_openssh-sftp-server=y"
+          echo "CONFIG_PACKAGE_tar=y"
+          echo "CONFIG_PACKAGE_wget=y"
+          echo ""
+          echo "# Web界面（可选，16MB闪存有足够空间）"
+          echo "CONFIG_PACKAGE_luci=y"
+          echo "CONFIG_PACKAGE_luci-base=y"
+          echo "CONFIG_PACKAGE_luci-compat=y"
+          echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y"
+          echo "CONFIG_PACKAGE_uhttpd=y"
+          echo "CONFIG_PACKAGE_uhttpd-mod-ubus=y"
           echo ""
           echo "# 明确禁用不需要的包，避免冲突"
-          echo "# CONFIG_PACKAGE_luci is not set"
-          echo "# CONFIG_PACKAGE_luci-base is not set"
-          echo "# CONFIG_PACKAGE_luci-compat is not set"
-          echo "# CONFIG_PACKAGE_uhttpd is not set"
+          echo "# CONFIG_PACKAGE_firewall4 is not set"
+          echo "# CONFIG_PACKAGE_dnsmasq-full is not set"
         } > .config
         
         # 应用配置
         echo "运行 make defconfig..."
         make defconfig
         
-        # 再次确认关键配置
-        echo "=== 检查关键配置 ==="
-        if grep -q "CONFIG_PACKAGE_dnsmasq=y" .config; then
-          echo "✅ dnsmasq 已启用"
-        else
-          echo "❌ dnsmasq 未启用，强制启用"
-          echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
-        fi
-        
-        if grep -q "CONFIG_PACKAGE_dnsmasq-full=y" .config; then
-          echo "❌ dnsmasq-full 已启用，需要禁用"
-          sed -i '/CONFIG_PACKAGE_dnsmasq-full=y/d' .config
-          echo "# CONFIG_PACKAGE_dnsmasq-full is not set" >> .config
-        else
-          echo "✅ dnsmasq-full 已禁用"
-        fi
-        
-        if grep -q "CONFIG_PACKAGE_luci-compat=y" .config; then
-          echo "❌ luci-compat 已启用，需要禁用"
-          sed -i '/CONFIG_PACKAGE_luci-compat=y/d' .config
-          echo "# CONFIG_PACKAGE_luci-compat is not set" >> .config
-        else
-          echo "✅ luci-compat 已禁用"
-        fi
-        
-        if grep -q "CONFIG_PACKAGE_ppp-mod-pppoe=y" .config; then
-          echo "❌ ppp-mod-pppoe 已启用，需要禁用"
-          sed -i '/CONFIG_PACKAGE_ppp-mod-pppoe=y/d' .config
-          echo "# CONFIG_PACKAGE_ppp-mod-pppoe is not set" >> .config
-        else
-          echo "✅ ppp-mod-pppoe 已禁用"
-        fi
+        # 强制只编译TP-WR703N
+        echo "=== 强制只编译TP-WR703N ==="
+        sed -i '/CONFIG_TARGET_ath79_tiny_DEVICE/d' .config
+        echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1=y" >> .config
+        sed -i '/CONFIG_TARGET_MULTI_PROFILE/d' .config
+        echo "CONFIG_TARGET_MULTI_PROFILE=n" >> .config
         
         # 创建自定义配置文件目录
         mkdir -p files/etc/config
@@ -263,7 +267,7 @@ jobs:
         # system配置
         {
           echo "config system"
-          echo "    option hostname 'TP-WR703N'"
+          echo "    option hostname 'TP-WR703N-16M'"
           echo "    option timezone 'CST-8'"
           echo ""
           echo "config timeserver 'ntp'"
@@ -273,11 +277,28 @@ jobs:
           echo "    list server 'time3.cloud.tencent.com'"
         } > files/etc/config/system
         
+        # LuCI主题配置
+        mkdir -p files/etc/uci-defaults
+        {
+          echo "#!/bin/sh"
+          echo "uci batch <<EOF"
+          echo "set luci.main.lang='zh_cn'"
+          echo "set luci.main.mediaurlbase='/luci-static/bootstrap'"
+          echo "commit luci"
+          echo "EOF"
+          echo "exit 0"
+        } > files/etc/uci-defaults/99_luci-theme
+        
+        chmod +x files/etc/uci-defaults/99_luci-theme
+        
         echo "✅ 配置完成"
-        echo "设备: TP-WR703N"
-        echo "固件类型: 16M squashfs-sysupgrade"
+        echo "设备: TP-WR703N (16MB改装闪存)"
+        echo "固件类型: 16MB squashfs-sysupgrade"
+        echo "分区大小: 14MB (为16MB闪存优化)"
         echo "网络: eth0作为LAN口，IP: 192.168.1.1"
         echo "无线: 已开启，SSID: TP-WR703N-ImmortalWrt"
+        echo "Web界面: LuCI 已包含，支持中文"
+        echo "额外功能: USB存储支持，更多系统工具"
     
     - name: Build with ccache and multi-threading
       run: |
@@ -295,7 +316,7 @@ jobs:
         # 显示ccache状态
         ccache -s
         
-        echo "开始编译，使用 $MAKE_JOBS 个线程..."
+        echo "开始编译16MB改装固件，使用 $MAKE_JOBS 个线程..."
         echo "编译时间预估: 15-60分钟"
         
         # 下载所有源码包
@@ -325,7 +346,7 @@ jobs:
         echo "=== 查找生成的固件 ==="
         
         # 首先列出所有可能的固件
-        echo "所有文件:"
+        echo "所有固件文件:"
         find bin/targets -type f -name "*.bin" -o -name "*.trx" -o -name "*.img" 2>/dev/null || true
         
         # 查找sysupgrade.bin固件
@@ -337,12 +358,12 @@ jobs:
           
           # 检查固件大小（16M闪存，固件应小于16MB）
           FILE_SIZE=$(stat -c%s "$SYSUPGRADE_FILE")
-          MAX_SIZE=$((16 * 1024 * 1024))  # 16MB
+          MAX_SIZE=$((14 * 1024 * 1024))  # 14MB，我们的分区大小
           
           if [ $FILE_SIZE -lt $MAX_SIZE ]; then
             echo "✅ 固件大小: $(($FILE_SIZE/1024/1024))MB，符合16M闪存要求"
           else
-            echo "⚠️ 固件大小: $(($FILE_SIZE/1024/1024))MB，可能超出16M闪存"
+            echo "⚠️ 固件大小: $(($FILE_SIZE/1024/1024))MB，可能超出14MB分区"
           fi
         else
           # 如果没有找到sysupgrade.bin，尝试找其他固件
@@ -370,15 +391,21 @@ jobs:
         # 创建固件信息文件
         echo "=== 创建固件信息 ==="
         {
-          echo "设备: TP-WR703N"
+          echo "设备: TP-WR703N (16MB改装闪存)"
           echo "固件: ImmortalWrt $(date +%Y%m%d)"
           echo "分支: openwrt-21.02"
           echo "文件系统: squashfs"
           echo "类型: sysupgrade"
+          echo "固件分区: 14MB (为16MB闪存优化)"
           echo "IP地址: 192.168.1.1"
           echo "无线SSID: TP-WR703N-ImmortalWrt"
           echo "无线密码: 12345678"
+          echo "Web界面: http://192.168.1.1"
+          echo "用户名: root"
+          echo "密码: (无默认密码，首次登录设置)"
           echo "编译时间: $(date)"
+          echo "注意: 专为16MB改装闪存的TP-WR703N编译"
+          echo "包含功能: LuCI Web界面、USB存储支持、完整网络功能"
         } > firmware-info.txt
         
         echo "固件信息已保存到 firmware-info.txt"
@@ -386,7 +413,7 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: immortalwrt-tp-wr703n-16m
+        name: immortalwrt-tp-wr703n-16m-mod
         path: |
           openwrt/bin/targets/**/*sysupgrade*.bin
           openwrt/bin/targets/**/*wr703n*.bin
