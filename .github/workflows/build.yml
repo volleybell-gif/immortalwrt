@@ -79,82 +79,84 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-        # 创建 .config 文件 - 避免使用 heredoc
-        echo "CONFIG_TARGET_ath79=y" > .config
-        echo "CONFIG_TARGET_ath79_tiny=y" >> .config
-        echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14" >> .config
-        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
-        echo "CONFIG_TARGET_IMAGES_PAD=y" >> .config
-        echo "CONFIG_CCACHE=y" >> .config
-        echo "CONFIG_BUILD_LOG=y" >> .config
-        echo "CONFIG_DEBUG_INFO=n" >> .config
-        echo "CONFIG_USE_MKLIBS=n" >> .config
-        echo "CONFIG_TARGET_MULTI_PROFILE=n" >> .config
-        echo "CONFIG_IMAGEOPT=y" >> .config
-        echo "CONFIG_TARGET_IMAGES_INCLUDE_KERNEL=y" >> .config
-        echo "CONFIG_TARGET_IMAGES_INCLUDE_DTB=y" >> .config
-        echo "CONFIG_TARGET_IMAGES_INCLUDE_ROOTFS=y" >> .config
-        echo "" >> .config
-        echo "# 基础系统" >> .config
-        echo "CONFIG_PACKAGE_busybox=y" >> .config
-        echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
-        echo "CONFIG_PACKAGE_base-files=y" >> .config
-        echo "CONFIG_PACKAGE_block-mount=y" >> .config
-        echo "CONFIG_PACKAGE_dropbear=y" >> .config
-        echo "CONFIG_PACKAGE_fstools=y" >> .config
-        echo "CONFIG_PACKAGE_jsonfilter=y" >> .config
-        echo "CONFIG_PACKAGE_libc=y" >> .config
-        echo "CONFIG_PACKAGE_libgcc=y" >> .config
-        echo "CONFIG_PACKAGE_libpthread=y" >> .config
-        echo "CONFIG_PACKAGE_librt=y" >> .config
-        echo "CONFIG_PACKAGE_libubox=y" >> .config
-        echo "CONFIG_PACKAGE_libuci=y" >> .config
-        echo "CONFIG_PACKAGE_logd=y" >> .config
-        echo "CONFIG_PACKAGE_mtd=y" >> .config
-        echo "CONFIG_PACKAGE_netifd=y" >> .config
-        echo "CONFIG_PACKAGE_opkg=y" >> .config
-        echo "CONFIG_PACKAGE_procd=y" >> .config
-        echo "CONFIG_PACKAGE_swconfig=y" >> .config
-        echo "CONFIG_PACKAGE_uboot-envtools=y" >> .config
-        echo "CONFIG_PACKAGE_ubus=y" >> .config
-        echo "CONFIG_PACKAGE_ubusd=y" >> .config
-        echo "CONFIG_PACKAGE_uci=y" >> .config
-        echo "CONFIG_PACKAGE_urandom-seed=y" >> .config
-        echo "CONFIG_PACKAGE_urngd=y" >> .config
-        echo "CONFIG_PACKAGE_usign=y" >> .config
-        echo "" >> .config
-        echo "# 网络配置" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
-        echo "CONFIG_PACKAGE_firewall=y" >> .config
-        echo "CONFIG_PACKAGE_iptables=y" >> .config
-        echo "CONFIG_PACKAGE_iptables-mod-conntrack-extra=y" >> .config
-        echo "CONFIG_PACKAGE_iptables-mod-ipopt=y" >> .config
-        echo "CONFIG_PACKAGE_iptables-mod-nat-extra=y" >> .config
-        echo "CONFIG_PACKAGE_wpad-basic=y" >> .config
-        echo "CONFIG_PACKAGE_hostapd-common=y" >> .config
-        echo "CONFIG_PACKAGE_iw=y" >> .config
-        echo "CONFIG_PACKAGE_iwinfo=y" >> .config
-        echo "" >> .config
-        echo "# 无线支持" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-cfg80211=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mac80211=y" >> .config
-        echo "" >> .config
-        echo "# 内核模块" >> .config
-        echo "CONFIG_PACKAGE_kmod-gpio-button-hotplug=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ipt-conntrack=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-nf-conntrack=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-nf-nat=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-usb-core=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-usb2=y" >> .config
-        echo "" >> .config
-        echo "# 文件系统" >> .config
-        echo "CONFIG_PACKAGE_kmod-fs-squashfs=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-nls-base=y" >> .config
+        # 创建 .config 文件 - 使用echo命令避免heredoc
+        {
+          echo "CONFIG_TARGET_ath79=y"
+          echo "CONFIG_TARGET_ath79_tiny=y"
+          echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1=y"
+          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y"
+          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14"
+          echo "CONFIG_TARGET_IMAGES_GZIP=y"
+          echo "CONFIG_TARGET_IMAGES_PAD=y"
+          echo "CONFIG_CCACHE=y"
+          echo "CONFIG_BUILD_LOG=y"
+          echo "CONFIG_DEBUG_INFO=n"
+          echo "CONFIG_USE_MKLIBS=n"
+          echo "CONFIG_TARGET_MULTI_PROFILE=n"
+          echo "CONFIG_IMAGEOPT=y"
+          echo "CONFIG_TARGET_IMAGES_INCLUDE_KERNEL=y"
+          echo "CONFIG_TARGET_IMAGES_INCLUDE_DTB=y"
+          echo "CONFIG_TARGET_IMAGES_INCLUDE_ROOTFS=y"
+          echo ""
+          echo "# 基础系统"
+          echo "CONFIG_PACKAGE_busybox=y"
+          echo "CONFIG_BUSYBOX_CUSTOM=y"
+          echo "CONFIG_PACKAGE_base-files=y"
+          echo "CONFIG_PACKAGE_block-mount=y"
+          echo "CONFIG_PACKAGE_dropbear=y"
+          echo "CONFIG_PACKAGE_fstools=y"
+          echo "CONFIG_PACKAGE_jsonfilter=y"
+          echo "CONFIG_PACKAGE_libc=y"
+          echo "CONFIG_PACKAGE_libgcc=y"
+          echo "CONFIG_PACKAGE_libpthread=y"
+          echo "CONFIG_PACKAGE_librt=y"
+          echo "CONFIG_PACKAGE_libubox=y"
+          echo "CONFIG_PACKAGE_libuci=y"
+          echo "CONFIG_PACKAGE_logd=y"
+          echo "CONFIG_PACKAGE_mtd=y"
+          echo "CONFIG_PACKAGE_netifd=y"
+          echo "CONFIG_PACKAGE_opkg=y"
+          echo "CONFIG_PACKAGE_procd=y"
+          echo "CONFIG_PACKAGE_swconfig=y"
+          echo "CONFIG_PACKAGE_uboot-envtools=y"
+          echo "CONFIG_PACKAGE_ubus=y"
+          echo "CONFIG_PACKAGE_ubusd=y"
+          echo "CONFIG_PACKAGE_uci=y"
+          echo "CONFIG_PACKAGE_urandom-seed=y"
+          echo "CONFIG_PACKAGE_urngd=y"
+          echo "CONFIG_PACKAGE_usign=y"
+          echo ""
+          echo "# 网络配置"
+          echo "CONFIG_PACKAGE_dnsmasq=y"
+          echo "CONFIG_PACKAGE_firewall=y"
+          echo "CONFIG_PACKAGE_iptables=y"
+          echo "CONFIG_PACKAGE_iptables-mod-conntrack-extra=y"
+          echo "CONFIG_PACKAGE_iptables-mod-ipopt=y"
+          echo "CONFIG_PACKAGE_iptables-mod-nat-extra=y"
+          echo "CONFIG_PACKAGE_wpad-basic=y"
+          echo "CONFIG_PACKAGE_hostapd-common=y"
+          echo "CONFIG_PACKAGE_iw=y"
+          echo "CONFIG_PACKAGE_iwinfo=y"
+          echo ""
+          echo "# 无线支持"
+          echo "CONFIG_PACKAGE_kmod-ath=y"
+          echo "CONFIG_PACKAGE_kmod-ath9k=y"
+          echo "CONFIG_PACKAGE_kmod-ath9k-common=y"
+          echo "CONFIG_PACKAGE_kmod-cfg80211=y"
+          echo "CONFIG_PACKAGE_kmod-mac80211=y"
+          echo ""
+          echo "# 内核模块"
+          echo "CONFIG_PACKAGE_kmod-gpio-button-hotplug=y"
+          echo "CONFIG_PACKAGE_kmod-ipt-conntrack=y"
+          echo "CONFIG_PACKAGE_kmod-nf-conntrack=y"
+          echo "CONFIG_PACKAGE_kmod-nf-nat=y"
+          echo "CONFIG_PACKAGE_kmod-usb-core=y"
+          echo "CONFIG_PACKAGE_kmod-usb2=y"
+          echo ""
+          echo "# 文件系统"
+          echo "CONFIG_PACKAGE_kmod-fs-squashfs=y"
+          echo "CONFIG_PACKAGE_kmod-nls-base=y"
+        } > .config
         
         # 应用配置
         make defconfig
@@ -163,69 +165,69 @@ jobs:
         mkdir -p files/etc/config
         
         # network配置 - 唯一网口作为LAN口，IP: 192.168.1.1
-        cat > files/etc/config/network << "EOF"
-config interface 'loopback'
-    option ifname 'lo'
-    option proto 'static'
-    option ipaddr '127.0.0.1'
-    option netmask '255.0.0.0'
-
-config interface 'lan'
-    option ifname 'eth0'
-    option proto 'static'
-    option ipaddr '192.168.1.1'
-    option netmask '255.255.255.0'
-    option ip6assign '60'
-EOF
+        {
+          echo "config interface 'loopback'"
+          echo "    option ifname 'lo'"
+          echo "    option proto 'static'"
+          echo "    option ipaddr '127.0.0.1'"
+          echo "    option netmask '255.0.0.0'"
+          echo ""
+          echo "config interface 'lan'"
+          echo "    option ifname 'eth0'"
+          echo "    option proto 'static'"
+          echo "    option ipaddr '192.168.1.1'"
+          echo "    option netmask '255.255.255.0'"
+          echo "    option ip6assign '60'"
+        } > files/etc/config/network
         
         # wireless配置 - 开启无线
-        cat > files/etc/config/wireless << "EOF"
-config wifi-device 'radio0'
-    option type 'mac80211'
-    option channel '11'
-    option hwmode '11g'
-    option path 'platform/ar933x_wmac'
-    option htmode 'HT20'
-    option disabled '0'
-    option txpower '20'
-
-config wifi-iface 'default_radio0'
-    option device 'radio0'
-    option network 'lan'
-    option mode 'ap'
-    option ssid 'TP-WR703N-ImmortalWrt'
-    option encryption 'psk2'
-    option key '12345678'
-EOF
+        {
+          echo "config wifi-device 'radio0'"
+          echo "    option type 'mac80211'"
+          echo "    option channel '11'"
+          echo "    option hwmode '11g'"
+          echo "    option path 'platform/ar933x_wmac'"
+          echo "    option htmode 'HT20'"
+          echo "    option disabled '0'"
+          echo "    option txpower '20'"
+          echo ""
+          echo "config wifi-iface 'default_radio0'"
+          echo "    option device 'radio0'"
+          echo "    option network 'lan'"
+          echo "    option mode 'ap'"
+          echo "    option ssid 'TP-WR703N-ImmortalWrt'"
+          echo "    option encryption 'psk2'"
+          echo "    option key '12345678'"
+        } > files/etc/config/wireless
         
         # firewall配置
-        cat > files/etc/config/firewall << "EOF"
-config defaults
-    option syn_flood '1'
-    option input 'ACCEPT'
-    option output 'ACCEPT'
-    option forward 'REJECT'
-
-config zone
-    option name 'lan'
-    list network 'lan'
-    option input 'ACCEPT'
-    option output 'ACCEPT'
-    option forward 'ACCEPT'
-EOF
+        {
+          echo "config defaults"
+          echo "    option syn_flood '1'"
+          echo "    option input 'ACCEPT'"
+          echo "    option output 'ACCEPT'"
+          echo "    option forward 'REJECT'"
+          echo ""
+          echo "config zone"
+          echo "    option name 'lan'"
+          echo "    list network 'lan'"
+          echo "    option input 'ACCEPT'"
+          echo "    option output 'ACCEPT'"
+          echo "    option forward 'ACCEPT'"
+        } > files/etc/config/firewall
         
         # system配置
-        cat > files/etc/config/system << "EOF"
-config system
-    option hostname 'TP-WR703N'
-    option timezone 'CST-8'
-
-config timeserver 'ntp'
-    option enabled '1'
-    list server 'time1.cloud.tencent.com'
-    list server 'time2.cloud.tencent.com'
-    list server 'time3.cloud.tencent.com'
-EOF
+        {
+          echo "config system"
+          echo "    option hostname 'TP-WR703N'"
+          echo "    option timezone 'CST-8'"
+          echo ""
+          echo "config timeserver 'ntp'"
+          echo "    option enabled '1'"
+          echo "    list server 'time1.cloud.tencent.com'"
+          echo "    list server 'time2.cloud.tencent.com'"
+          echo "    list server 'time3.cloud.tencent.com'"
+        } > files/etc/config/system
         
         echo "✅ 配置完成"
         echo "设备: TP-WR703N"
@@ -323,17 +325,17 @@ EOF
         
         # 创建固件信息文件
         echo "=== 创建固件信息 ==="
-        cat > firmware-info.txt << "EOF"
-设备: TP-WR703N
-固件: ImmortalWrt $(date +%Y%m%d)
-分支: openwrt-21.02
-文件系统: squashfs
-类型: sysupgrade
-IP地址: 192.168.1.1
-无线SSID: TP-WR703N-ImmortalWrt
-无线密码: 12345678
-编译时间: $(date)
-EOF
+        {
+          echo "设备: TP-WR703N"
+          echo "固件: ImmortalWrt $(date +%Y%m%d)"
+          echo "分支: openwrt-21.02"
+          echo "文件系统: squashfs"
+          echo "类型: sysupgrade"
+          echo "IP地址: 192.168.1.1"
+          echo "无线SSID: TP-WR703N-ImmortalWrt"
+          echo "无线密码: 12345678"
+          echo "编译时间: $(date)"
+        } > firmware-info.txt
         
         echo "固件信息已保存到 firmware-info.txt"
     
