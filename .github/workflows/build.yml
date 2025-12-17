@@ -80,16 +80,26 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-        # 创建最小配置
+        # 使用menuconfig选择设备并生成默认配置
+        echo "使用menuconfig配置设备..."
+        # 先创建一个基础配置
         cat > .config << 'CONFIG_EOF'
         CONFIG_TARGET_ath79=y
         CONFIG_TARGET_ath79_tiny=y
         CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n=y
+        CONFIG_EOF
+        
+        # 应用配置，让系统自动设置依赖
+        make defconfig
+        
+        # 现在使用menuconfig来确保固件生成选项被启用（非交互模式）
+        # 我们使用脚本自动选择
+        echo "配置固件生成选项..."
+        cat >> .config << 'CONFIG_APPEND'
         CONFIG_TARGET_ROOTFS_SQUASHFS=y
-        CONFIG_TARGET_ROOTFS_PARTSIZE=14
+        CONFIG_TARGET_ROOTFS_INITRAMFS=n
         CONFIG_TARGET_IMAGES_GZIP=y
         CONFIG_TARGET_IMAGES_PAD=y
-        # CONFIG_TARGET_ROOTFS_INITRAMFS is not set
         CONFIG_CCACHE=y
         CONFIG_BUILD_LOG=y
         CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
@@ -97,36 +107,10 @@ jobs:
         CONFIG_DEBUG_INFO=n
         CONFIG_USE_MKLIBS=n
         CONFIG_TARGET_MULTI_PROFILE=n
-        
-        # 内核配置
-        CONFIG_LINUX_4_14=y
-        
-        # 确保生成 sysupgrade 固件
         CONFIG_IMAGEOPT=y
-        CONFIG_KERNEL_KALLSYMS=y
+        CONFIG_LINUX_4_14=y
+        CONFIG_KERNEL_KALLSYMS=n
         CONFIG_KERNEL_DEBUG_INFO=n
-        
-        # 基础包
-        CONFIG_PACKAGE_kmod-ath=y
-        CONFIG_PACKAGE_kmod-ath9k=y
-        CONFIG_PACKAGE_kmod-ath9k-common=y
-        CONFIG_PACKAGE_kmod-ath9k-htc=y
-        CONFIG_PACKAGE_kmod-cfg80211=y
-        CONFIG_PACKAGE_kmod-mac80211=y
-        CONFIG_PACKAGE_wpad-basic=y
-        CONFIG_PACKAGE_hostapd-common=y
-        CONFIG_PACKAGE_iw=y
-        CONFIG_PACKAGE_iwinfo=y
-        
-        # 网络基础
-        CONFIG_PACKAGE_dnsmasq=y
-        CONFIG_PACKAGE_firewall=y
-        CONFIG_PACKAGE_iptables=y
-        CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
-        CONFIG_PACKAGE_iptables-mod-ipopt=y
-        CONFIG_PACKAGE_iptables-mod-nat-extra=y
-        
-        # 系统工具
         CONFIG_PACKAGE_busybox=y
         CONFIG_BUSYBOX_CUSTOM=y
         CONFIG_PACKAGE_base-files=y
@@ -153,14 +137,26 @@ jobs:
         CONFIG_PACKAGE_urandom-seed=y
         CONFIG_PACKAGE_urngd=y
         CONFIG_PACKAGE_usign=y
-        
-        # 文件系统
+        CONFIG_PACKAGE_kmod-ath=y
+        CONFIG_PACKAGE_kmod-ath9k=y
+        CONFIG_PACKAGE_kmod-ath9k-common=y
+        CONFIG_PACKAGE_kmod-ath9k-htc=y
+        CONFIG_PACKAGE_kmod-cfg80211=y
+        CONFIG_PACKAGE_kmod-mac80211=y
+        CONFIG_PACKAGE_wpad-basic=y
+        CONFIG_PACKAGE_hostapd-common=y
+        CONFIG_PACKAGE_iw=y
+        CONFIG_PACKAGE_iwinfo=y
+        CONFIG_PACKAGE_dnsmasq=y
+        CONFIG_PACKAGE_firewall=y
+        CONFIG_PACKAGE_iptables=y
+        CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+        CONFIG_PACKAGE_iptables-mod-ipopt=y
+        CONFIG_PACKAGE_iptables-mod-nat-extra=y
         CONFIG_PACKAGE_kmod-fs-ext4=y
         CONFIG_PACKAGE_kmod-fs-squashfs=y
         CONFIG_PACKAGE_kmod-nls-base=y
         CONFIG_PACKAGE_kmod-nls-utf8=y
-        
-        # 排除的包（减小体积）
         # CONFIG_PACKAGE_dnsmasq-full is not set
         # CONFIG_PACKAGE_firewall4 is not set
         # CONFIG_PACKAGE_nftables is not set
@@ -169,10 +165,19 @@ jobs:
         # CONFIG_PACKAGE_luci-base is not set
         # CONFIG_PACKAGE_luci-compat is not set
         # CONFIG_PACKAGE_uhttpd is not set
-        CONFIG_EOF
+        CONFIG_APPEND
         
-        # 应用配置
+        # 再次应用配置
         make defconfig
+        
+        # 检查配置
+        echo "=== 配置检查 ==="
+        echo "目标设备:"
+        grep "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n" .config
+        echo "固件类型:"
+        grep -E "CONFIG_TARGET_ROOTFS_SQUASHFS|CONFIG_TARGET_IMAGES" .config
+        echo "内核版本:"
+        grep "CONFIG_LINUX_" .config
         
         # 创建自定义配置文件
         mkdir -p files/etc/config
@@ -228,27 +233,6 @@ jobs:
             option forward 'ACCEPT'
         EOF
         
-        # 配置验证
-        echo "=== 配置验证 ==="
-        echo "设备选择:"
-        grep "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n" .config && echo "✅ TP-WR703N 已选中"
-        echo "固件类型:"
-        grep "CONFIG_TARGET_ROOTFS_SQUASHFS" .config && echo "✅ 将生成 squashfs 固件"
-        echo "网络配置:"
-        if [ -f "files/etc/config/network" ]; then
-          echo "✅ 自定义 network 配置已创建"
-          echo "   网口: eth0 (LAN)"
-          echo "   IP地址: 192.168.1.1"
-        fi
-        echo "无线配置:"
-        if [ -f "files/etc/config/wireless" ]; then
-          echo "✅ 无线已启用"
-          echo "   SSID: TP-WR703N-ImmortalWrt"
-        fi
-        
-        # 显示关键配置
-        echo "=== 关键配置检查 ==="
-        grep "CONFIG_IMAGEOPT\|CONFIG_TARGET_IMAGES\|CONFIG_TARGET_ROOTFS" .config
         echo "✅ 配置完成"
     
     - name: Build with multi-threading
@@ -271,7 +255,16 @@ jobs:
         
         # 开始编译 - 使用多线程
         echo "=== 开始编译 ==="
-        time make -j$MAKE_JOBS V=s 2>&1 | tee build.log
+        # 先清理旧的编译结果
+        make clean
+        
+        # 编译内核
+        echo "=== 编译内核 ==="
+        time make target/linux/compile -j$MAKE_JOBS V=s 2>&1 | tee -a build.log
+        
+        # 编译固件
+        echo "=== 编译固件 ==="
+        time make -j$MAKE_JOBS V=s 2>&1 | tee -a build.log
         
         # 检查编译结果
         if [ $? -eq 0 ]; then
@@ -279,10 +272,19 @@ jobs:
           
           # 检查生成的固件
           echo "=== 检查生成的固件 ==="
-          find bin/targets -name "*.bin" -type f | while read file; do
+          find bin/targets -name "*.bin" -type f 2>/dev/null | while read file; do
             echo "找到固件: $file"
             ls -lh "$file"
           done
+          
+          # 如果没有找到.bin文件，查找其他可能的固件格式
+          if ! find bin/targets -name "*.bin" -type f 2>/dev/null | grep -q .; then
+            echo "=== 查找所有可能的固件文件 ==="
+            find bin/targets -type f 2>/dev/null | grep -v ".manifest\|.buildinfo\|sha256sums" | while read file; do
+              echo "找到文件: $file"
+              ls -lh "$file"
+            done
+          fi
         else
           echo "❌ 编译失败"
           exit 1
@@ -294,25 +296,57 @@ jobs:
         
         echo "=== 查找固件文件 ==="
         echo "列出 bin/targets 目录结构:"
-        find bin/targets -type f | sort
+        find bin/targets -type f 2>/dev/null | sort || true
         
         echo "=== 搜索所有固件文件 ==="
-        find bin/targets -name "*.bin" -type f | while read file; do
-          echo "找到: $file"
-          ls -lh "$file"
-        done
+        # 查找所有可能的固件文件
+        FOUND_FILES=false
         
-        # 检查 sysupgrade.bin
-        if find bin/targets -name "*sysupgrade*.bin" -type f | grep -q .; then
-          echo "✅ 找到 sysupgrade.bin 固件"
-        elif find bin/targets -name "*.bin" -type f | grep -q .; then
-          echo "✅ 找到其他固件文件"
-          echo "固件列表:"
-          find bin/targets -name "*.bin" -type f
-        else
+        # 查找.bin文件
+        if find bin/targets -name "*.bin" -type f 2>/dev/null | grep -q .; then
+          echo "✅ 找到 .bin 固件文件"
+          find bin/targets -name "*.bin" -type f 2>/dev/null | while read file; do
+            echo "固件: $file"
+            ls -lh "$file"
+          done
+          FOUND_FILES=true
+        fi
+        
+        # 查找.img文件
+        if find bin/targets -name "*.img" -type f 2>/dev/null | grep -q .; then
+          echo "✅ 找到 .img 固件文件"
+          find bin/targets -name "*.img" -type f 2>/dev/null | while read file; do
+            echo "固件: $file"
+            ls -lh "$file"
+          done
+          FOUND_FILES=true
+        fi
+        
+        # 查找.bin文件（不区分大小写）
+        if find bin/targets -iname "*.bin" -type f 2>/dev/null | grep -q .; then
+          echo "✅ 找到 .bin 固件文件（不区分大小写）"
+          find bin/targets -iname "*.bin" -type f 2>/dev/null | while read file; do
+            echo "固件: $file"
+            ls -lh "$file"
+          done
+          FOUND_FILES=true
+        fi
+        
+        # 如果没有找到任何固件文件，列出目录内容
+        if [ "$FOUND_FILES" = false ]; then
           echo "❌ 未找到任何固件文件"
           echo "列出目录内容:"
+          ls -la bin/targets/ || true
+          ls -la bin/targets/ath79/ || true
           ls -la bin/targets/ath79/tiny/ || true
+          
+          # 检查编译日志中的错误
+          echo "=== 检查编译日志中的错误 ==="
+          if [ -f "build.log" ]; then
+            echo "显示编译日志的最后100行:"
+            tail -100 build.log
+          fi
+          
           exit 1
         fi
     
@@ -322,5 +356,6 @@ jobs:
         name: immortalwrt-wr703n
         path: |
           openwrt/bin/targets/**/*.bin
+          openwrt/bin/targets/**/*.img
           openwrt/build.log
         retention-days: 7
