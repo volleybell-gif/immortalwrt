@@ -1,43 +1,114 @@
-name: Build ImmortalWrt for TP-WR703N (16MB Mod)
+name: Build ImmortalWrt 21.02 for AR9331 16M
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # 手动触发
   push:
-    branches: [main]
+    branches: [ main ]
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 2 * * 0'  # 每周日 2:00 UTC 自动编译
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: openwrt-21.02
-  DEVICE: tplink_tl-wr703n
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    strategy:
-      fail-fast: false
-      matrix:
-        thread_count: [4]
+    timeout-minutes: 180
     
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
-    - name: Setup ccache
-      uses: actions/cache@v4
+    - name: Checkout ImmortalWrt source
+      uses: actions/checkout@v3
       with:
-        path: ~/.ccache
-        key: ccache-${{ github.sha }}
-        restore-keys: ccache-
-    
-    - name: Clone ImmortalWrt source
+        repository: immortalwrt/immortalwrt
+        ref: openwrt-21.02
+        submodules: true
+
+    - name: Update feeds
       run: |
-        git clone --depth=1 --branch=${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} openwrt
-    
-    - name: Install dependencies
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Load AR9331 config
       run: |
+        # 设置目标为 AR9331 (ath79/tiny)
+        cat > $CONFIG_FILE << EOF
+        CONFIG_TARGET_ath79=y
+        CONFIG_TARGET_ath79_tiny=y
+        CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4=y
+        CONFIG_TARGET_ROOTFS_PARTSIZE=128
+        CONFIG_TARGET_ROOTFS_SQUASHFS=y
+        CONFIG_TARGET_ROOTFS_JFFS2=n
+        CONFIG_VMLINUX_COMPRESSION_NONE=y
+        CONFIG_PACKAGE_kmod-ath9k=y
+        CONFIG_PACKAGE_kmod-ath9k-common=y
+        CONFIG_PACKAGE_hostapd-common=y
+        CONFIG_PACKAGE_wpad-basic=y
+        CONFIG_PACKAGE_iw=y
+        CONFIG_PACKAGE_wireless-tools=y
+        CONFIG_PACKAGE_luci=y
+        CONFIG_PACKAGE_luci-base=y
+        CONFIG_PACKAGE_luci-compat=y
+        CONFIG_PACKAGE_luci-mod-admin-full=y
+        CONFIG_PACKAGE_luci-app-firewall=y
+        CONFIG_PACKAGE_luci-proto-ipv6=y
+        CONFIG_PACKAGE_luci-proto-ppp=y
+        CONFIG_PACKAGE_dnsmasq=y
+        CONFIG_PACKAGE_dropbear=y
+        CONFIG_PACKAGE_firewall=y
+        CONFIG_PACKAGE_iptables=y
+        CONFIG_PACKAGE_ip6tables=y
+        CONFIG_PACKAGE_ppp=y
+        CONFIG_PACKAGE_ppp-mod-pppoe=y
+        CONFIG_PACKAGE_odhcpd-ipv6only=y
+        CONFIG_PACKAGE_odhcp6c=y
+        CONFIG_PACKAGE_kmod-ipt-offload=y
+        # 启用无线
+        CONFIG_PACKAGE_kmod-ath9k=y
+        CONFIG_ATH_USER_REGD=y
+        CONFIG_PACKAGE_ATH_DEBUG=y
+        # 网络配置
+        CONFIG_PACKAGE_dnsmasq-full=y
+        CONFIG_PACKAGE_dnsmasq_full_dhcp=y
+        CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
+        # LAN口配置
+        CONFIG_DEVEL=y
+        CONFIG_CCACHE=y
+        CONFIG_BUILD_LOG=y
+        EOF
+
+    - name: Customize config
+      run: |
+        # 启用 ccache
+        echo 'CONFIG_CCACHE=y' >> $CONFIG_FILE
+        echo 'CONFIG_CCACHE_DIR="/tmp/ccache"' >> $CONFIG_FILE
+        echo 'CONFIG_CCACHE_BIN="/usr/bin/ccache"' >> $CONFIG_FILE
+        
+        # 设置 IP 地址和 LAN 口配置
+        echo 'CONFIG_TARGET_IPV6=y' >> $CONFIG_FILE
+        echo 'CONFIG_TARGET_PREINIT_IP="192.168.1.1"' >> $CONFIG_FILE
+        echo 'CONFIG_TARGET_PREINIT_NETMASK="255.255.255.0"' >> $CONFIG_FILE
+        echo 'CONFIG_TARGET_PREINIT_BROADCAST="192.168.1.255"' >> $CONFIG_FILE
+        
+        # 设置闪存为 16M
+        echo 'CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4_16M=y' >> $CONFIG_FILE
+        
+        # 启用多线程编译
+        echo 'CONFIG_MAKE_J="$(nproc)"' >> $CONFIG_FILE
+
+    - name: Set up ccache
+      uses: actions/cache@v3
+      with:
+        path: /tmp/ccache
+        key: ${{ runner.os }}-ccache-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-
+
+    - name: Setup environment
+      run: |
+        # 安装编译依赖
         sudo apt-get update
         sudo apt-get install -y \
           build-essential \
@@ -55,344 +126,55 @@ jobs:
           libncursesw5-dev \
           libssl-dev \
           python3 \
+          python3-distutils \
           python3-setuptools \
-          python3-venv \
-          python3-dev \
           rsync \
           subversion \
           swig \
           time \
-          unzip \
-          wget \
           xsltproc \
-          zlib1g-dev
-    
-    - name: Configure build
+          zlib1g-dev \
+          unzip \
+          wget
+        
+        # 设置 ccache
+        ccache -o compression=true
+        ccache -M 2G
+        ccache -s
+
+    - name: Final config
       run: |
-        cd openwrt
-        
-        # 清理工作区
-        rm -f .config .config.old
-        if [ -d "tmp" ]; then rm -rf tmp; fi
-        
-        # 关键修复：修改TP-WR703N设备定义，将4MB改为16MB
-        echo "=== 修改TP-WR703N设备定义，支持16MB闪存 ==="
-        
-        # 1. 首先备份原始文件
-        cp target/linux/ath79/image/tplink.mk target/linux/ath79/image/tplink.mk.backup
-        
-        # 2. 创建16MB设备定义
-        cat > /tmp/tl-wr703n-16m.patch << 'EOF'
---- a/target/linux/ath79/image/tplink.mk
-+++ b/target/linux/ath79/image/tplink.mk
-@@ -XX,XX +XX,XX @@ define Device/tl-wr703n-v1
-   $(Device/tplink-4mlzma)
-   ATH_SOC := ar9331
-   DEVICE_MODEL := TL-WR703N
--  DEVICE_PACKAGES := kmod-usb-core kmod-usb2
-+  DEVICE_PACKAGES := kmod-usb-core kmod-usb2 kmod-usb-storage
-   TPLINK_HWID := 0x07030101
-   SUPPORTED_DEVICES += tl-wr703n
- endef
- TARGET_DEVICES += tl-wr703n-v1
- 
-+define Device/tl-wr703n-v1-16m
-+  $(Device/tplink-16mlzma)
-+  ATH_SOC := ar9331
-+  DEVICE_MODEL := TL-WR703N (16MB)
-+  DEVICE_PACKAGES := kmod-usb-core kmod-usb2 kmod-usb-storage
-+  TPLINK_HWID := 0x07030101
-+  SUPPORTED_DEVICES += tl-wr703n
-+endef
-+TARGET_DEVICES += tl-wr703n-v1-16m
-EOF
-        
-        # 检查是否有tplink-16mlzma定义，如果没有就添加
-        if ! grep -q "define Device/tplink-16mlzma" target/linux/ath79/image/tplink.mk; then
-          echo "添加tplink-16mlzma设备定义..."
-          # 找到tplink-4mlzma定义并复制为16mlzma
-          awk '/define Device\/tplink-4mlzma/{flag=1} flag && /endef/{print $0; flag=0} flag' target/linux/ath79/image/tplink.mk | \
-            sed 's/4mlzma/16mlzma/g' | \
-            sed 's/--pad 4/--pad 16/g' | \
-            sed 's/-F 4Mlzma/-F 16Mlzma/g' >> target/linux/ath79/image/tplink.mk
-        fi
-        
-        # 添加16MB设备定义
-        echo "" >> target/linux/ath79/image/tplink.mk
-        echo "define Device/tl-wr703n-v1-16m" >> target/linux/ath79/image/tplink.mk
-        echo "  \$(Device/tplink-16mlzma)" >> target/linux/ath79/image/tplink.mk
-        echo "  ATH_SOC := ar9331" >> target/linux/ath79/image/tplink.mk
-        echo "  DEVICE_MODEL := TL-WR703N (16MB)" >> target/linux/ath79/image/tplink.mk
-        echo "  DEVICE_PACKAGES := kmod-usb-core kmod-usb2 kmod-usb-storage" >> target/linux/ath79/image/tplink.mk
-        echo "  TPLINK_HWID := 0x07030101" >> target/linux/ath79/image/tplink.mk
-        echo "  SUPPORTED_DEVICES += tl-wr703n" >> target/linux/ath79/image/tplink.mk
-        echo "endef" >> target/linux/ath79/image/tplink.mk
-        echo "TARGET_DEVICES += tl-wr703n-v1-16m" >> target/linux/ath79/image/tplink.mk
-        
-        echo "✅ 设备定义修改完成"
-        
-        # 更新和安装 feeds
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-        
-        # 创建 .config 文件 - 使用新的16MB设备
-        {
-          echo "CONFIG_TARGET_ath79=y"
-          echo "CONFIG_TARGET_ath79_tiny=y"
-          echo "# 注意：这里使用tl-wr703n，系统会自动选择16MB版本"
-          echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr703n-v1-16m=y"
-          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y"
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=14"  # 14MB分区
-          echo "CONFIG_TARGET_IMAGES_GZIP=y"
-          echo "CONFIG_TARGET_IMAGES_PAD=y"
-          echo "CONFIG_CCACHE=y"
-          echo "CONFIG_BUILD_LOG=y"
-          echo "CONFIG_DEBUG_INFO=n"
-          echo "CONFIG_USE_MKLIBS=n"
-          echo "CONFIG_TARGET_MULTI_PROFILE=n"
-          echo "CONFIG_IMAGEOPT=y"
-          echo "CONFIG_TARGET_IMAGES_INCLUDE_KERNEL=y"
-          echo "CONFIG_TARGET_IMAGES_INCLUDE_DTB=y"
-          echo "CONFIG_TARGET_IMAGES_INCLUDE_ROOTFS=y"
-          echo "# CONFIG_TARGET_ROOTFS_INITRAMFS is not set"
-          echo "CONFIG_KERNEL_GZIP=y"
-          echo ""
-          echo "# 基础系统"
-          echo "CONFIG_PACKAGE_busybox=y"
-          echo "CONFIG_BUSYBOX_CUSTOM=y"
-          echo "CONFIG_BUSYBOX_DEFAULT_FEATURE_EDITING=y"
-          echo "CONFIG_BUSYBOX_DEFAULT_FEATURE_EDITING_SAVEHISTORY=y"
-          echo "CONFIG_PACKAGE_base-files=y"
-          echo "CONFIG_PACKAGE_block-mount=y"
-          echo "CONFIG_PACKAGE_dropbear=y"
-          echo "CONFIG_PACKAGE_fstools=y"
-          echo "CONFIG_PACKAGE_jsonfilter=y"
-          echo "CONFIG_PACKAGE_libc=y"
-          echo "CONFIG_PACKAGE_libgcc=y"
-          echo "CONFIG_PACKAGE_libpthread=y"
-          echo "CONFIG_PACKAGE_librt=y"
-          echo "CONFIG_PACKAGE_libubox=y"
-          echo "CONFIG_PACKAGE_libuci=y"
-          echo "CONFIG_PACKAGE_logd=y"
-          echo "CONFIG_PACKAGE_mtd=y"
-          echo "CONFIG_PACKAGE_netifd=y"
-          echo "CONFIG_PACKAGE_opkg=y"
-          echo "CONFIG_PACKAGE_procd=y"
-          echo "CONFIG_PACKAGE_swconfig=y"
-          echo "CONFIG_PACKAGE_uboot-envtools=y"
-          echo "CONFIG_PACKAGE_ubus=y"
-          echo "CONFIG_PACKAGE_ubusd=y"
-          echo "CONFIG_PACKAGE_uci=y"
-          echo "CONFIG_PACKAGE_urandom-seed=y"
-          echo "CONFIG_PACKAGE_urngd=y"
-          echo "CONFIG_PACKAGE_usign=y"
-          echo ""
-          echo "# 网络配置"
-          echo "CONFIG_PACKAGE_dnsmasq=y"
-          echo "# CONFIG_PACKAGE_dnsmasq-full is not set"
-          echo "CONFIG_PACKAGE_firewall=y"
-          echo "# CONFIG_PACKAGE_firewall4 is not set"
-          echo "# CONFIG_PACKAGE_iptables is not set"  # 先禁用，减少大小
-          echo "# CONFIG_PACKAGE_iptables-mod-conntrack-extra is not set"
-          echo "# CONFIG_PACKAGE_iptables-mod-ipopt is not set"
-          echo "# CONFIG_PACKAGE_iptables-mod-nat-extra is not set"
-          echo "# CONFIG_PACKAGE_nftables is not set"
-          echo "CONFIG_PACKAGE_wpad-basic=y"
-          echo "CONFIG_PACKAGE_hostapd-common=y"
-          echo "# CONFIG_PACKAGE_iw is not set"
-          echo "CONFIG_PACKAGE_iwinfo=y"
-          echo "# CONFIG_PACKAGE_ppp-mod-pppoe is not set"
-          echo ""
-          echo "# 无线支持"
-          echo "CONFIG_PACKAGE_kmod-ath=y"
-          echo "CONFIG_PACKAGE_kmod-ath9k=y"
-          echo "CONFIG_PACKAGE_kmod-ath9k-common=y"
-          echo "CONFIG_PACKAGE_kmod-cfg80211=y"
-          echo "CONFIG_PACKAGE_kmod-mac80211=y"
-          echo ""
-          echo "# 内核模块"
-          echo "CONFIG_PACKAGE_kmod-gpio-button-hotplug=y"
-          echo "# CONFIG_PACKAGE_kmod-ipt-conntrack is not set"
-          echo "# CONFIG_PACKAGE_kmod-nf-conntrack is not set"
-          echo "# CONFIG_PACKAGE_kmod-nf-nat is not set"
-          echo "CONFIG_PACKAGE_kmod-usb-core=y"
-          echo "CONFIG_PACKAGE_kmod-usb2=y"
-          echo "# CONFIG_PACKAGE_kmod-usb-storage is not set"  # 先禁用
-          echo ""
-          echo "# 文件系统"
-          echo "CONFIG_PACKAGE_kmod-fs-squashfs=y"
-          echo "CONFIG_PACKAGE_kmod-nls-base=y"
-        } > .config
-        
         # 应用配置
-        echo "运行 make defconfig..."
+        cat $CONFIG_FILE
         make defconfig
-        
-        # 验证设备选择
-        echo "=== 检查设备配置 ==="
-        grep "CONFIG_TARGET_ath79_tiny_DEVICE" .config || echo "设备配置未找到"
-        
-        # 创建自定义配置文件
-        mkdir -p files/etc/config
-        
-        # network配置
-        {
-          echo "config interface 'loopback'"
-          echo "    option ifname 'lo'"
-          echo "    option proto 'static'"
-          echo "    option ipaddr '127.0.0.1'"
-          echo "    option netmask '255.0.0.0'"
-          echo ""
-          echo "config interface 'lan'"
-          echo "    option ifname 'eth0'"
-          echo "    option proto 'static'"
-          echo "    option ipaddr '192.168.1.1'"
-          echo "    option netmask '255.255.255.0'"
-        } > files/etc/config/network
-        
-        # wireless配置
-        {
-          echo "config wifi-device 'radio0'"
-          echo "    option type 'mac80211'"
-          echo "    option channel '11'"
-          echo "    option hwmode '11g'"
-          echo "    option path 'platform/ar933x_wmac'"
-          echo "    option htmode 'HT20'"
-          echo "    option disabled '0'"
-          echo "    option txpower '20'"
-          echo ""
-          echo "config wifi-iface 'default_radio0'"
-          echo "    option device 'radio0'"
-          echo "    option network 'lan'"
-          echo "    option mode 'ap'"
-          echo "    option ssid 'TP-WR703N-16M-ImmortalWrt'"
-          echo "    option encryption 'psk2'"
-          echo "    option key '12345678'"
-        } > files/etc/config/wireless
-        
-        # firewall配置
-        {
-          echo "config defaults"
-          echo "    option syn_flood '1'"
-          echo "    option input 'ACCEPT'"
-          echo "    option output 'ACCEPT'"
-          echo "    option forward 'REJECT'"
-          echo ""
-          echo "config zone"
-          echo "    option name 'lan'"
-          echo "    list network 'lan'"
-          echo "    option input 'ACCEPT'"
-          echo "    option output 'ACCEPT'"
-          echo "    option forward 'ACCEPT'"
-        } > files/etc/config/firewall
-        
-        echo "✅ 配置完成"
-        echo "设备: TP-WR703N (16MB改装闪存)"
-        echo "固件类型: 16MB squashfs-sysupgrade"
-        echo "分区大小: 14MB"
-        echo "网络: eth0作为LAN口，IP: 192.168.1.1"
-        echo "无线: 已开启，SSID: TP-WR703N-16M-ImmortalWrt"
-    
-    - name: Build with ccache and multi-threading
+        # 确保选择正确的设备
+        echo "CONFIG_TARGET_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=128" >> .config
+        # 启用无线驱动
+        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
+
+    - name: Build image
       run: |
-        cd openwrt
-        
-        # 设置编译线程数
-        MAKE_JOBS=${{ matrix.thread_count }}
-        
-        # 启用ccache加速
-        export CCACHE_DIR=~/.ccache
-        export CCACHE_MAXSIZE=2G
-        export CCACHE_COMPRESS=1
-        
-        echo "开始编译16MB改装固件，使用 $MAKE_JOBS 个线程..."
-        echo "注意：这次使用16MB设备定义，应该能成功生成固件"
-        
-        # 下载源码包
-        time make download -j$MAKE_JOBS || echo "下载完成，继续编译..."
-        
-        # 开始编译
-        time make -j$MAKE_JOBS V=s 2>&1 | tee build.log
-        
-        if [ $? -eq 0 ]; then
-          echo "✅ 编译成功"
-        else
-          echo "❌ 编译失败，查看错误日志..."
-          tail -200 build.log | grep -A10 -B10 "error\|Error\|ERROR\|fail\|Fail\|FAIL"
-          exit 1
-        fi
-    
-    - name: Check and prepare artifacts
+        # 开始编译，使用多线程
+        make -j$(nproc) V=s
+        # 也可以使用以下命令（不显示详细输出）
+        # make -j$(nproc) V=99
+
+    - name: Check build artifacts
       run: |
-        cd openwrt
-        
-        echo "=== 查找生成的固件 ==="
-        
-        # 显示所有文件
-        echo "所有文件:"
-        find bin/targets -type f -name "*.bin" 2>/dev/null | while read file; do
-          echo "找到固件: $file"
-          ls -lh "$file"
-        done
-        
-        # 查找TP-WR703N固件
-        FIRMWARE_FILE=$(find bin/targets -name "*tl-wr703n*.bin" -type f 2>/dev/null | head -1)
-        
-        if [ -n "$FIRMWARE_FILE" ]; then
-          echo "✅ 找到TP-WR703N固件: $FIRMWARE_FILE"
-          ls -lh "$FIRMWARE_FILE"
-          
-          # 检查固件大小
-          FILE_SIZE=$(stat -c%s "$FIRMWARE_FILE")
-          echo "固件大小: $((FILE_SIZE/1024/1024))MB"
-          
-          if [ $FILE_SIZE -lt $((14*1024*1024)) ]; then
-            echo "✅ 固件大小符合16MB闪存要求"
-          else
-            echo "⚠️ 固件可能偏大，但16MB闪存应该能容纳"
-          fi
-          
-          # 复制为sysupgrade.bin
-          cp "$FIRMWARE_FILE" "sysupgrade.bin"
-          echo "已复制为 sysupgrade.bin"
-        else
-          echo "❌ 未找到TP-WR703N固件"
-          echo "当前目录结构:"
-          find bin/targets -type f 2>/dev/null | head -20
-          exit 1
-        fi
-        
-        # 创建固件信息
-        {
-          echo "设备: TP-WR703N (16MB改装闪存)"
-          echo "固件: ImmortalWrt $(date +%Y%m%d)"
-          echo "分支: openwrt-21.02"
-          echo "文件系统: squashfs"
-          echo "类型: sysupgrade"
-          echo "IP地址: 192.168.1.1"
-          echo "无线SSID: TP-WR703N-16M-ImmortalWrt"
-          echo "无线密码: 12345678"
-          echo "编译时间: $(date)"
-          echo "注意: 专为16MB改装闪存的TP-WR703N编译"
-        } > firmware-info.txt
-        
-        echo "✅ 固件准备完成"
-    
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+        # 检查生成的文件
+        ls -la bin/targets/ath79/tiny/
+        find bin/targets/ath79/tiny/ -name "*sysupgrade*.bin" -type f | head -5
+
+    - name: Upload firmware
+      uses: actions/upload-artifact@v3
       with:
-        name: immortalwrt-tp-wr703n-16m-mod
+        name: immortalwrt-ar9331-16m
         path: |
-          openwrt/sysupgrade.bin
-          openwrt/bin/targets/**/*tl-wr703n*.bin
-          openwrt/firmware-info.txt
-          openwrt/build.log
-        retention-days: 7
-    
-    - name: Upload on failure
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-failure-logs
-        path: openwrt/build.log
-        retention-days: 3
+          bin/targets/ath79/tiny/
+        if-no-files-found: error
+
+    - name: Show ccache stats
+      run: ccache -s
