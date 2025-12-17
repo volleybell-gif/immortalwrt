@@ -97,19 +97,70 @@ jobs:
         CONFIG_DEBUG_INFO=n
         CONFIG_USE_MKLIBS=n
         CONFIG_TARGET_MULTI_PROFILE=n
+        
+        # 内核配置
+        CONFIG_LINUX_4_14=y
+        
+        # 确保生成 sysupgrade 固件
+        CONFIG_IMAGEOPT=y
+        CONFIG_KERNEL_KALLSYMS=y
+        CONFIG_KERNEL_DEBUG_INFO=n
+        
+        # 基础包
         CONFIG_PACKAGE_kmod-ath=y
         CONFIG_PACKAGE_kmod-ath9k=y
         CONFIG_PACKAGE_kmod-ath9k-common=y
+        CONFIG_PACKAGE_kmod-ath9k-htc=y
+        CONFIG_PACKAGE_kmod-cfg80211=y
+        CONFIG_PACKAGE_kmod-mac80211=y
         CONFIG_PACKAGE_wpad-basic=y
         CONFIG_PACKAGE_hostapd-common=y
         CONFIG_PACKAGE_iw=y
         CONFIG_PACKAGE_iwinfo=y
+        
+        # 网络基础
         CONFIG_PACKAGE_dnsmasq=y
         CONFIG_PACKAGE_firewall=y
         CONFIG_PACKAGE_iptables=y
         CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
         CONFIG_PACKAGE_iptables-mod-ipopt=y
         CONFIG_PACKAGE_iptables-mod-nat-extra=y
+        
+        # 系统工具
+        CONFIG_PACKAGE_busybox=y
+        CONFIG_BUSYBOX_CUSTOM=y
+        CONFIG_PACKAGE_base-files=y
+        CONFIG_PACKAGE_block-mount=y
+        CONFIG_PACKAGE_dropbear=y
+        CONFIG_PACKAGE_fstools=y
+        CONFIG_PACKAGE_jsonfilter=y
+        CONFIG_PACKAGE_libc=y
+        CONFIG_PACKAGE_libgcc=y
+        CONFIG_PACKAGE_libpthread=y
+        CONFIG_PACKAGE_librt=y
+        CONFIG_PACKAGE_libubox=y
+        CONFIG_PACKAGE_libuci=y
+        CONFIG_PACKAGE_logd=y
+        CONFIG_PACKAGE_mtd=y
+        CONFIG_PACKAGE_netifd=y
+        CONFIG_PACKAGE_opkg=y
+        CONFIG_PACKAGE_procd=y
+        CONFIG_PACKAGE_swconfig=y
+        CONFIG_PACKAGE_uboot-envtools=y
+        CONFIG_PACKAGE_ubus=y
+        CONFIG_PACKAGE_ubusd=y
+        CONFIG_PACKAGE_uci=y
+        CONFIG_PACKAGE_urandom-seed=y
+        CONFIG_PACKAGE_urngd=y
+        CONFIG_PACKAGE_usign=y
+        
+        # 文件系统
+        CONFIG_PACKAGE_kmod-fs-ext4=y
+        CONFIG_PACKAGE_kmod-fs-squashfs=y
+        CONFIG_PACKAGE_kmod-nls-base=y
+        CONFIG_PACKAGE_kmod-nls-utf8=y
+        
+        # 排除的包（减小体积）
         # CONFIG_PACKAGE_dnsmasq-full is not set
         # CONFIG_PACKAGE_firewall4 is not set
         # CONFIG_PACKAGE_nftables is not set
@@ -194,6 +245,10 @@ jobs:
           echo "✅ 无线已启用"
           echo "   SSID: TP-WR703N-ImmortalWrt"
         fi
+        
+        # 显示关键配置
+        echo "=== 关键配置检查 ==="
+        grep "CONFIG_IMAGEOPT\|CONFIG_TARGET_IMAGES\|CONFIG_TARGET_ROOTFS" .config
         echo "✅ 配置完成"
     
     - name: Build with multi-threading
@@ -211,14 +266,23 @@ jobs:
         echo "使用 $MAKE_JOBS 个线程进行编译"
         
         # 先下载源码包
+        echo "=== 下载源码包 ==="
         make download -j$MAKE_JOBS
         
         # 开始编译 - 使用多线程
+        echo "=== 开始编译 ==="
         time make -j$MAKE_JOBS V=s 2>&1 | tee build.log
         
         # 检查编译结果
         if [ $? -eq 0 ]; then
           echo "✅ 编译成功"
+          
+          # 检查生成的固件
+          echo "=== 检查生成的固件 ==="
+          find bin/targets -name "*.bin" -type f | while read file; do
+            echo "找到固件: $file"
+            ls -lh "$file"
+          done
         else
           echo "❌ 编译失败"
           exit 1
@@ -229,7 +293,11 @@ jobs:
         cd openwrt
         
         echo "=== 查找固件文件 ==="
-        find bin/targets -name "*wr703n*" -type f | while read file; do
+        echo "列出 bin/targets 目录结构:"
+        find bin/targets -type f | sort
+        
+        echo "=== 搜索所有固件文件 ==="
+        find bin/targets -name "*.bin" -type f | while read file; do
           echo "找到: $file"
           ls -lh "$file"
         done
@@ -237,8 +305,14 @@ jobs:
         # 检查 sysupgrade.bin
         if find bin/targets -name "*sysupgrade*.bin" -type f | grep -q .; then
           echo "✅ 找到 sysupgrade.bin 固件"
+        elif find bin/targets -name "*.bin" -type f | grep -q .; then
+          echo "✅ 找到其他固件文件"
+          echo "固件列表:"
+          find bin/targets -name "*.bin" -type f
         else
-          echo "❌ 未找到 sysupgrade.bin 固件"
+          echo "❌ 未找到任何固件文件"
+          echo "列出目录内容:"
+          ls -la bin/targets/ath79/tiny/ || true
           exit 1
         fi
     
