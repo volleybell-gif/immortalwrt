@@ -1,0 +1,12 @@
+# 系统配置文件
+config system
+    option hostname 'ImmortalWrt-AR9331'
+    option timezone 'CST-8'
+    option zonename 'Asia/Shanghai'
+
+config timeserver 'ntp'
+    option enabled '1'
+    option enable_server '0'
+    list server 'ntp1.aliyun.com'
+    list server 'ntp2.aliyun.com'
+    list server 'ntp3.aliyun.com'
