@@ -1,4 +1,4 @@
-name: Build ImmortalWrt for Generic AR9331 16M
+name: Build ImmortalWrt for AR9331 16M
 
 on:
   workflow_dispatch:
@@ -6,15 +6,15 @@ on:
       build_type:
         description: 'Build type'
         required: true
-        default: 'generic-ar9331-16m'
+        default: 'ar9331-16m'
         type: choice
         options:
-          - generic-ar9331-16m
-          - generic-ar9331-16m-luci
+          - ar9331-16m
+          - ar9331-16m-luci
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build-ar9331-16m.yml'
+      - '.github/workflows/build-ar9331.yml'
       - 'config/**'
       - 'files/**'
       - 'patches/**'
@@ -22,19 +22,17 @@ on:
     - cron: '0 2 * * 0'
 
 env:
-  OPENWRT_VERSION: "21.02"
+  REPO_URL: "https://github.com/immortalwrt/immortalwrt"
+  REPO_BRANCH: "openwrt-21.02"
   TARGET: "ath79"
-  SUBTARGET: "tiny"
-  DEVICE: "generic-ar9331-16m"
-  FLASH_SIZE: "16m"
-  ROOTFS_PART_SIZE: "128"
+  SUBTARGET: "generic"
+  PROFILE: "tplink_tl-wr703n-v1"
+  IMAGE_NAME: "openwrt-21.02-ath79-generic-tplink_tl-wr703n-v1-squashfs-sysupgrade.bin"
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 明确使用 Ubuntu 22.04
-    timeout-minutes: 240
-    strategy:
-      fail-fast: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     
     steps:
     - name: Checkout ImmortalWrt source
@@ -48,17 +46,17 @@ jobs:
     - name: Checkout custom configs
       uses: actions/checkout@v4
       with:
-        path: custom-configs
+        path: config
 
     - name: Setup ccache
-      uses: actions/cache@v4
+      uses: actions/cache@v3
       with:
         path: ~/.ccache
-        key: ccache-${{ runner.os }}-${{ github.run_id }}
+        key: ccache-${{ runner.os }}-${{ github.sha }}
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: Install build dependencies for Ubuntu 22.04
+    - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -71,258 +69,205 @@ jobs:
           gawk \
           gettext \
           git \
-          libelf-dev \
           libncurses5-dev \
           libncursesw5-dev \
           libssl-dev \
           python3 \
-          python3-dev \
-          python3-pip \
-          python3-setuptools \
+          python3-distutils \
           rsync \
-          swig \
           unzip \
           wget \
           zlib1g-dev \
+          subversion \
           time \
-          libxml2-dev \
-          libxslt1-dev \
-          gperf \
-          antlr3 \
           gcc-multilib \
           flex \
-          bison
+          bison \
+          curl
         
-        # 确保 Python 3 环境完整
-        pip3 install --upgrade pip
-        pip3 install wheel
-        
-        ccache -M 10G
+        ccache -M 5G
         ccache -s
-        echo "编译环境准备完成"
 
-    - name: Setup build environment
+    - name: Prepare configuration
+      run: |
+        cd immortalwrt
+        
+        # 清理配置
+        rm -f .config .config.old
+        
+        # 设置目标平台
+        cat > .config << EOF
+CONFIG_TARGET_ath79=y
+CONFIG_TARGET_ath79_generic=y
+CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wr703n-v1=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=14
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_VMLINUX_COMPRESSION_LZMA=y
+CONFIG_BINARY_FOLDER=""
+EOF
+
+        # 基础配置
+        cat >> .config << 'EOF'
+# 无线配置
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_PACKAGE_kmod-ath9k-common=y
+CONFIG_PACKAGE_kmod-ath9k-htc=y
+CONFIG_PACKAGE_hostapd-common=y
+CONFIG_PACKAGE_wpad-basic-wolfssl=y
+
+# 网络配置
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_ip6tables=y
+CONFIG_PACKAGE_ppp=y
+CONFIG_PACKAGE_ppp-mod-pppoe=y
+CONFIG_PACKAGE_odhcpd=y
+CONFIG_PACKAGE_odhcp6c=y
+CONFIG_PACKAGE_dropbear=y
+
+# 系统工具
+CONFIG_PACKAGE_busybox=y
+CONFIG_BUSYBOX_CUSTOM=y
+CONFIG_BUSYBOX_CONFIG_FEATURE_SYSLOGD_READ_BUFFER_SIZE=512
+CONFIG_PACKAGE_base-files=y
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_fstools=y
+CONFIG_PACKAGE_logd=y
+CONFIG_PACKAGE_mtd=y
+CONFIG_PACKAGE_uci=y
+CONFIG_PACKAGE_procd=y
+CONFIG_PACKAGE_uboot-envtools=y
+CONFIG_PACKAGE_urandom-seed=y
+CONFIG_PACKAGE_kmod-gpio-button-hotplug=y
+CONFIG_PACKAGE_kmod-ledtrig-netdev=y
+CONFIG_PACKAGE_kmod-ledtrig-timer=y
+
+# 编译配置
+CONFIG_CCACHE=y
+CONFIG_BUILD_LOG=y
+CONFIG_SIGNED_PACKAGES=n
+CONFIG_STRIP_KERNEL_EXPORTS=y
+CONFIG_USE_MKLIBS=n
+EOF
+
+        # 根据构建类型添加LuCI
+        if [ "${{ github.event.inputs.build_type }}" = "ar9331-16m-luci" ]; then
+          cat >> .config << 'EOF'
+# LuCI配置
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-base=y
+CONFIG_PACKAGE_luci-compat=y
+CONFIG_PACKAGE_luci-mod-admin-full=y
+CONFIG_PACKAGE_luci-app-firewall=y
+CONFIG_PACKAGE_luci-proto-ipv6=y
+CONFIG_PACKAGE_luci-proto-ppp=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+EOF
+        fi
+
+        # 显示配置
+        echo "生成的配置:"
+        ./scripts/diffconfig.sh
+
+    - name: Update feeds
       run: |
         cd immortalwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Apply base configuration
-      run: |
-        cd immortalwrt
-        rm -f .config
-        
-        # 创建基础配置文件
-        echo "CONFIG_TARGET_ath79=y" > .config
-        echo "CONFIG_TARGET_ath79_tiny=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=128" >> .config
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_JFFS2=n" >> .config
-        echo "CONFIG_VMLINUX_COMPRESSION_NONE=y" >> .config
-        
-        make defconfig
-        echo "基础配置应用完成"
-
-    - name: Apply device configuration
-      run: |
-        cd immortalwrt
-        
-        # 应用设备配置
-        if [ -f ../custom-configs/config/ar9331-16m-devices.config ]; then
-          cat ../custom-configs/config/ar9331-16m-devices.config >> .config
-          echo "从文件加载设备配置"
-        else
-          echo "使用默认设备配置..."
-          echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr741nd-v4_16M=y" >> .config
-          echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr740n-v4_16M=y" >> .config
-          echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr740n-v5_16M=y" >> .config
-          echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr703n_16M=y" >> .config
-          echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
-        fi
-
-    - name: Apply package configuration
-      run: |
-        cd immortalwrt
-        
-        # 应用软件包配置
-        if [ -f ../custom-configs/config/ar9331-16m-packages.config ]; then
-          cat ../custom-configs/config/ar9331-16m-packages.config >> .config
-          echo "从文件加载软件包配置"
-        else
-          echo "使用默认软件包配置..."
-          echo "# 无线配置" >> .config
-          echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
-          echo "CONFIG_PACKAGE_hostapd-common=y" >> .config
-          echo "CONFIG_PACKAGE_wpad-basic-wolfssl=y" >> .config
-          echo "CONFIG_PACKAGE_iw=y" >> .config
-          echo "CONFIG_PACKAGE_wireless-tools=y" >> .config
-          
-          echo "# 网络配置" >> .config
-          echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
-          echo "CONFIG_PACKAGE_dnsmasq_full_dhcp=y" >> .config
-          echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> .config
-          echo "CONFIG_PACKAGE_dropbear=y" >> .config
-          echo "CONFIG_PACKAGE_firewall=y" >> .config
-          echo "CONFIG_PACKAGE_iptables=y" >> .config
-          echo "CONFIG_PACKAGE_ip6tables=y" >> .config
-          echo "CONFIG_PACKAGE_ppp=y" >> .config
-          echo "CONFIG_PACKAGE_ppp-mod-pppoe=y" >> .config
-          echo "CONFIG_PACKAGE_odhcpd-ipv6only=y" >> .config
-          echo "CONFIG_PACKAGE_odhcp6c=y" >> .config
-        fi
-
     - name: Apply network configuration
       run: |
         cd immortalwrt
         
-        # 应用网络配置
-        if [ -f ../custom-configs/config/ar9331-16m-network.config ]; then
-          cat ../custom-configs/config/ar9331-16m-network.config >> .config
-          echo "从文件加载网络配置"
-        else
-          echo "使用默认网络配置..."
-          echo "# 网络设置" >> .config
-          echo "CONFIG_TARGET_PREINIT_SUPPRESS_NOIFACE=y" >> .config
-          echo "CONFIG_TARGET_PREINIT_TIMEOUT=5" >> .config
-          echo "CONFIG_TARGET_PREINIT_IFNAME=eth0" >> .config
-          echo "CONFIG_TARGET_PREINIT_IP=192.168.1.1" >> .config
-          echo "CONFIG_TARGET_PREINIT_NETMASK=255.255.255.0" >> .config
-          echo "CONFIG_TARGET_PREINIT_BROADCAST=192.168.1.255" >> .config
-        fi
+        # 创建网络配置文件
+        mkdir -p files/etc/uci-defaults
+        cat > files/etc/uci-defaults/99-custom-network << 'EOF'
+#!/bin/sh
 
-    - name: Apply build configuration
+# 设置LAN口IP为192.168.1.1
+uci set network.lan.ipaddr='192.168.1.1'
+uci set network.lan.proto='static'
+uci set network.lan.netmask='255.255.255.0'
+
+# 删除WAN配置，将所有端口桥接到LAN
+uci delete network.wan
+uci delete network.wan6
+uci set network.lan.ifname='eth0'
+
+# 设置无线
+uci set wireless.radio0.disabled='0'
+uci set wireless.radio0.channel='6'
+uci set wireless.radio0.htmode='HT20'
+uci set wireless.default_radio0.ssid='ImmortalWrt-AR9331'
+uci set wireless.default_radio0.encryption='none'
+uci set wireless.default_radio0.key=''
+
+# 提交更改
+uci commit network
+uci commit wireless
+
+exit 0
+EOF
+
+        chmod +x files/etc/uci-defaults/99-custom-network
+
+    - name: Build with ccache
       run: |
         cd immortalwrt
         
-        # 获取CPU核心数
-        CPU_CORES=$(nproc)
-        
-        # 应用编译配置
-        if [ -f ../custom-configs/config/ar9331-16m-build.config ]; then
-          cat ../custom-configs/config/ar9331-16m-build.config >> .config
-          # 动态设置CPU核心数
-          sed -i "s/CONFIG_MAKE_J=.*/CONFIG_MAKE_J=$CPU_CORES/" .config 2>/dev/null || true
-          echo "从文件加载编译配置，设置CPU核心数为 $CPU_CORES"
-        else
-          echo "使用默认编译配置..."
-          echo "# 编译配置" >> .config
-          echo "CONFIG_DEVEL=y" >> .config
-          echo "CONFIG_CCACHE=y" >> .config
-          echo "CONFIG_BUILD_LOG=y" >> .config
-          echo "CONFIG_TARGET_IPV6=y" >> .config
-          echo "CONFIG_MAKE_J=$CPU_CORES" >> .config
-          echo "CONFIG_SIGNED_PACKAGES=n" >> .config
-          echo "CONFIG_BUILDBOT=n" >> .config
-        fi
-
-    - name: Apply LuCI configuration if selected
-      run: |
-        cd immortalwrt
-        
-        # 如果选择包含LuCI，则应用LuCI配置
-        BUILD_TYPE="${{ github.event.inputs.build_type }}"
-        if [ "$BUILD_TYPE" = "generic-ar9331-16m-luci" ]; then
-          if [ -f ../custom-configs/config/ar9331-16m-luci.config ]; then
-            cat ../custom-configs/config/ar9331-16m-luci.config >> .config
-            echo "从文件加载LuCI配置"
-          else
-            echo "应用默认LuCI配置..."
-            echo "# LuCI配置" >> .config
-            echo "CONFIG_PACKAGE_luci=y" >> .config
-            echo "CONFIG_PACKAGE_luci-base=y" >> .config
-            echo "CONFIG_PACKAGE_luci-compat=y" >> .config
-            echo "CONFIG_PACKAGE_luci-mod-admin-full=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-firewall=y" >> .config
-            echo "CONFIG_PACKAGE_luci-proto-ipv6=y" >> .config
-            echo "CONFIG_PACKAGE_luci-proto-ppp=y" >> .config
-          fi
-        else
-          echo "不包含LuCI界面"
-        fi
-
-    - name: Finalize configuration
-      run: |
-        cd immortalwrt
-        
-        # 应用完整配置
+        # 使用defconfig应用配置
         make defconfig
         
-        # 显示配置摘要
-        echo "配置摘要:"
-        ./scripts/diffconfig.sh
+        # 获取CPU核心数用于多线程编译
+        CORES=$(nproc)
+        echo "使用 $CORES 个CPU核心进行编译"
+        
+        # 启用ccache并开始编译
+        export CCACHE_DIR=/home/runner/.ccache
+        export CCACHE_BASEDIR=$(pwd)
+        
+        # 编译内核和基础包
+        make -j$((CORES + 1)) tools/compile || make tools/compile V=s
+        make -j$((CORES + 1)) toolchain/compile || make toolchain/compile V=s
+        
+        # 编译目标文件
+        echo "开始编译目标文件..."
+        time make -j$((CORES + 1)) || {
+          echo "并行编译失败，尝试单线程编译..."
+          make V=s
+        }
 
-    - name: Apply custom files and patches
+    - name: Check build results
       run: |
         cd immortalwrt
         
-        # 应用自定义文件
-        if [ -d ../custom-configs/files ]; then
-          echo "应用自定义文件..."
-          cp -r ../custom-configs/files/* files/ 2>/dev/null || true
-        fi
+        echo "检查编译输出目录..."
+        find bin/targets -type f -name "*.bin" | head -20
         
-        # 应用补丁
-        if [ -d ../custom-configs/patches ]; then
-          echo "应用补丁..."
-          find ../custom-configs/patches -name "*.patch" -exec git apply {} \; 2>/dev/null || true
-        fi
-
-    - name: Build firmware
-      run: |
-        cd immortalwrt
-        CPU_CORES=$(nproc)
-        echo "使用 $CPU_CORES 个CPU核心进行编译..."
-        
-        # 使用多线程编译
-        make -j$CPU_CORES V=s 2>&1 | tee build.log
-        
-        # 检查编译结果
-        if [ ${PIPESTATUS[0]} -eq 0 ]; then
-          echo "编译成功！"
+        # 检查特定设备固件
+        if [ -f "bin/targets/ath79/generic/$IMAGE_NAME" ]; then
+          echo "✅ 固件生成成功: $IMAGE_NAME"
+          ls -lh "bin/targets/ath79/generic/$IMAGE_NAME"
         else
-          echo "编译失败，检查日志..."
-          tail -100 build.log
-          exit 1
-        fi
-
-    - name: Collect build artifacts
-      run: |
-        cd immortalwrt
-        
-        echo "查找生成的固件文件..."
-        mkdir -p ../artifacts
-        
-        # 查找所有sysupgrade固件
-        find bin/targets/ath79/tiny/ -name "*sysupgrade*.bin" -type f | while read firmware; do
-          echo "找到固件: $firmware"
-          cp "$firmware" ../artifacts/
-        done
-        
-        # 如果没有找到sysupgrade，尝试其他格式
-        if [ -z "$(ls -A ../artifacts 2>/dev/null)" ]; then
-          echo "未找到sysupgrade文件，查找其他固件格式..."
-          find bin/targets/ath79/tiny/ -name "*.bin" -o -name "*.trx" -o -name "*.img" | head -10 | while read firmware; do
-            echo "找到固件: $firmware"
-            cp "$firmware" ../artifacts/
-          done
+          echo "❌ 未找到目标固件，列出所有文件:"
+          find bin/targets/ath79/generic -type f | sort
         fi
         
-        # 复制配置文件和日志
-        cp .config ../artifacts/immortalwrt.config
-        cp build.log ../artifacts/build.log
-        
-        echo "生成的文件:"
-        ls -la ../artifacts/
+        echo "目录结构:"
+        ls -la bin/targets/ath79/generic/
 
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
+      if: success()
       with:
-        name: immortalwrt-ar9331-16m-firmware
-        path: artifacts/
-        compression-level: 0
+        name: ar9331-firmware
+        path: |
+          immortalwrt/bin/targets/ath79/generic/*.bin
+          immortalwrt/bin/targets/ath79/generic/*.manifest
+        if-no-files-found: warn
         retention-days: 7
-        if-no-files-found: error
 
     - name: Upload build logs
       uses: actions/upload-artifact@v4
@@ -333,9 +278,3 @@ jobs:
           immortalwrt/build.log
           immortalwrt/.config
         retention-days: 3
-
-    - name: Show ccache statistics
-      if: success()
-      run: |
-        ccache -s
-        echo "编译完成！"
