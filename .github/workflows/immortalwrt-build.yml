@@ -4,21 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       enable_cache:
-        description: 'Enable CCache'
+        description: '启用缓存加速'
         required: true
         default: 'true'
         type: choice
         options:
-          - 'true'
-          - 'false'
+        - 'true'
+        - 'false'
       clean_build:
-        description: 'Clean Build'
+        description: '是否完全清理构建'
         required: true
         default: 'false'
         type: choice
         options:
-          - 'true'
-          - 'false'
+        - 'true'
+        - 'false'
 
 env:
   TARGET: ar71xx
@@ -35,12 +35,12 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout Repository
+    - name: 检出仓库代码
       uses: actions/checkout@v4
       with:
         path: custom-configs
         
-    - name: Setup Cache
+    - name: 设置缓存
       if: ${{ github.event.inputs.enable_cache == 'true' }}
       uses: actions/cache@v4
       with:
@@ -52,10 +52,10 @@ jobs:
           ${{ runner.os }}-immortalwrt-${{ env.TARGET }}-
           ${{ runner.os }}-immortalwrt-
           
-    - name: Install Dependencies
+    - name: 安装依赖包
       run: |
         echo "========================================"
-        echo "Installing build dependencies..."
+        echo "正在安装构建依赖..."
         echo "========================================"
         sudo apt-get update
         sudo apt-get install -y \
@@ -93,168 +93,167 @@ jobs:
           xmlto \
           re2c
         
-    - name: Setup CCache
+    - name: 设置CCache缓存
       if: ${{ github.event.inputs.enable_cache == 'true' }}
       run: |
         echo "========================================"
-        echo "Setting up CCache..."
+        echo "正在设置CCache缓存..."
         echo "========================================"
         mkdir -p ${{ env.CCACHE_DIR }}
         echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
         echo "CCACHE_MAXSIZE=${{ env.CCACHE_MAXSIZE }}" >> $GITHUB_ENV
         ccache --zero-stats
         
-    - name: Clone ImmortalWrt Source
+    - name: 克隆ImmortalWrt源码
       run: |
         echo "========================================"
-        echo "Cloning ImmortalWrt source code..."
+        echo "正在克隆ImmortalWrt源码..."
         echo "========================================"
-        git clone --depth=1 -b openwrt-21.02 https://github.com/immortalwrt/immortalwrt.git
-        cd immortalwrt
+        git clone --depth=1 -b openwrt-21.02 https://github.com/immortalwrt/immortalwrt.git immortalwrt
         
-    - name: Update and Install Feeds
+    - name: 更新和安装Feeds
       run: |
         echo "========================================"
-        echo "Updating feeds..."
+        echo "正在更新feeds..."
         echo "========================================"
         cd immortalwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-    - name: Apply Custom Configuration
+    - name: 应用自定义配置
       run: |
         echo "========================================"
-        echo "Applying custom configuration..."
+        echo "正在应用自定义配置..."
         echo "========================================"
         cd immortalwrt
         
-        # Apply custom configs
+        # 应用自定义脚本
         if [ -f ../custom-configs/scripts/customize.sh ]; then
           chmod +x ../custom-configs/scripts/customize.sh
           ../custom-configs/scripts/customize.sh
         fi
         
-        # Copy config files
+        # 复制配置文件
         if [ -d ../custom-configs/config ]; then
           mkdir -p files/etc/config
           cp -rf ../custom-configs/config/* files/etc/config/ || true
         fi
         
-    - name: Clean Build (Optional)
+    - name: 清理构建（可选）
       if: ${{ github.event.inputs.clean_build == 'true' }}
       run: |
         echo "========================================"
-        echo "Cleaning build directory..."
+        echo "正在清理构建目录..."
         echo "========================================"
         cd immortalwrt
         make clean
         
-    - name: Configure Build
+    - name: 配置构建参数
       run: |
         echo "========================================"
-        echo "Configuring build..."
+        echo "正在配置构建参数..."
         echo "========================================"
         cd immortalwrt
         
-        # Generate default config
+        # 生成默认配置
         make defconfig
         
-        # Apply AR9331 specific configuration for 16MB Flash
-        cat >> .config << EOF
+        # 应用AR9331特定配置（16MB Flash）
+        cat >> .config << 'EOF'
 CONFIG_TARGET_ar71xx=y
 CONFIG_TARGET_ar71xx_generic=y
 CONFIG_TARGET_ar71xx_generic_DEVICE_tl-wr841-v11=y
 
-# Set correct flash size for 16MB
+# 设置正确的闪存分区大小
 CONFIG_TARGET_KERNEL_PARTSIZE=4
 CONFIG_TARGET_ROOTFS_PARTSIZE=12
 
-# Enable 64MB RAM support
+# 启用64MB内存支持
 CONFIG_TARGET_ar71xx_generic_DEVICE_tl-wr841-v11_64M=y
 
-# Filesystem
+# 文件系统
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_SQUASHFS_BLOCK_SIZE=256
 
-# Wireless
+# 无线驱动
 CONFIG_PACKAGE_kmod-ath9k=y
 CONFIG_PACKAGE_kmod-ath9k-common=y
 CONFIG_PACKAGE_kmod-ath9k-htc=y
 CONFIG_ATH_USER_REGD=y
 
-# CCache optimization
+# CCache优化
 CONFIG_CCACHE=y
 CONFIG_CCACHE_DIR="${{ env.CCACHE_DIR }}"
 CONFIG_BUILD_LOG=y
 EOF
         
-        # Finalize config
+        # 最终确定配置
         make defconfig
         
-    - name: Download Packages
+    - name: 下载软件包
       run: |
         echo "========================================"
-        echo "Downloading packages..."
+        echo "正在下载软件包..."
         echo "========================================"
         cd immortalwrt
         
-        # Use parallel download
+        # 使用并行下载
         make -j$(($(nproc) * 2)) download || make -j1 download V=s
         
-    - name: Build Firmware
+    - name: 构建固件
       run: |
         echo "========================================"
-        echo "Building firmware..."
+        echo "正在构建固件..."
         echo "========================================"
         cd immortalwrt
         
-        # Get number of CPU cores
+        # 获取CPU核心数
         CORES=$(nproc)
-        echo "Using $CORES cores for compilation"
+        echo "使用 $CORES 个核心进行编译"
         
-        # Build with CCache if enabled
+        # 根据是否启用缓存选择构建方式
         if [ "${{ github.event.inputs.enable_cache }}" = "true" ]; then
-          echo "Building with CCache enabled"
+          echo "使用CCache加速构建"
           make -j$CORES V=s CCACHE_DIR="${{ env.CCACHE_DIR }}"
         else
-          echo "Building without CCache"
+          echo "不使用CCache构建"
           make -j$CORES V=s
         fi
         
-        # If parallel build fails, try single core
+        # 如果并行构建失败，尝试单核心构建
         if [ $? -ne 0 ]; then
-          echo "Parallel build failed, trying single core..."
+          echo "并行构建失败，尝试单核心构建..."
           make -j1 V=s
         fi
         
-    - name: Collect Firmware Files
+    - name: 收集固件文件
       run: |
         echo "========================================"
-        echo "Collecting firmware files..."
+        echo "正在收集固件文件..."
         echo "========================================"
         
-        # Create output directory
+        # 创建输出目录
         mkdir -p firmware_output
         
-        # Find and copy firmware files
+        # 查找并复制固件文件
         find immortalwrt/bin/targets -type f \( -name "*squashfs*sysupgrade*" -o -name "*factory*" \) | while read file; do
-          echo "Found firmware: $(basename "$file")"
+          echo "找到固件: $(basename "$file")"
           cp "$file" firmware_output/
         done
         
-        # List all collected files
-        echo "Collected firmware files:"
-        ls -la firmware_output/ || echo "No files found"
+        # 列出所有收集的文件
+        echo "已收集的固件文件:"
+        ls -la firmware_output/ || echo "未找到文件"
         
-    - name: Show CCache Stats
+    - name: 显示CCache统计
       if: ${{ github.event.inputs.enable_cache == 'true' }}
       run: |
         echo "========================================"
-        echo "CCache Statistics:"
+        echo "CCache统计信息:"
         echo "========================================"
-        ccache -s || echo "CCache not available"
+        ccache -s || echo "CCache不可用"
         
-    - name: Upload Firmware Artifact
+    - name: 上传固件工件
       if: success()
       uses: actions/upload-artifact@v4
       with:
@@ -262,16 +261,16 @@ EOF
         path: firmware_output/
         retention-days: 30
         
-    - name: Build Summary
+    - name: 构建总结
       if: always()
       run: |
         echo "========================================"
-        echo "Build Summary:"
+        echo "构建总结:"
         echo "========================================"
-        echo "Target: ${{ env.TARGET }}/${{ env.SUBTARGET }}"
-        echo "Profile: ${{ env.PROFILE }}"
-        echo "Flash Size: ${{ env.FLASH_SIZE }}MB"
-        echo "RAM Size: ${{ env.RAM_SIZE }}MB"
-        echo "CCache Enabled: ${{ github.event.inputs.enable_cache }}"
-        echo "Clean Build: ${{ github.event.inputs.clean_build }}"
+        echo "目标平台: ${{ env.TARGET }}/${{ env.SUBTARGET }}"
+        echo "设备型号: ${{ env.PROFILE }}"
+        echo "闪存大小: ${{ env.FLASH_SIZE }}MB"
+        echo "内存大小: ${{ env.RAM_SIZE }}MB"
+        echo "CCache启用: ${{ github.event.inputs.enable_cache }}"
+        echo "清理构建: ${{ github.event.inputs.clean_build }}"
         echo "========================================"
