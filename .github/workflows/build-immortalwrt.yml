@@ -15,7 +15,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04  # 使用 Ubuntu 22.04
 
     steps:
     - name: Checkout ImmortalWrt Source Code
@@ -36,12 +36,31 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-immortalwrt-
 
-    - name: Install dependencies
+    - name: Install dependencies with Python 2.7
       run: |
-        echo "正在安装构建依赖..."
+        echo "正在安装构建依赖（包括Python 2.7）..."
         sudo apt-get update
-        sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk gettext git java-propose-classpath libelf-dev libncurses5-dev libncursesw5-dev libssl-dev python2 python2-dev python3 python3-dev python3-distutils python3-setuptools rsync subversion swig time xsltproc zlib1g-dev curl
+        
+        # 安装必要的工具
+        sudo apt-get install -y software-properties-common
+        sudo add-apt-repository -y ppa:deadsnakes/ppa
+        sudo apt-get update
+        
+        # 安装Python 2.7和相关开发包
+        sudo apt-get install -y python2.7 python2.7-dev
+        
+        # 创建python2符号链接
+        sudo ln -sf /usr/bin/python2.7 /usr/bin/python2
+        
+        # 安装其他构建依赖
+        sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
+        gettext git java-propose-classpath libelf-dev libncurses5-dev \
+        libncursesw5-dev libssl-dev python3 python3-dev python3-distutils \
+        python3-setuptools rsync subversion swig time xsltproc zlib1g-dev curl
+        
         echo "依赖安装完成！"
+        echo "Python 2.7版本："
+        python2.7 --version
 
     - name: Setup ccache
       run: |
