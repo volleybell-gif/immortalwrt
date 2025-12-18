@@ -1,64 +1,277 @@
-
-name: ImmortalWrt Cloud Build
+name: Build ImmortalWrt for AR9331
 
 on:
   workflow_dispatch:
     inputs:
       enable_cache:
-        description: '启用缓存加速'
+        description: 'Enable CCache'
         required: true
         default: 'true'
         type: choice
         options:
           - 'true'
           - 'false'
+      clean_build:
+        description: 'Clean Build'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  TARGET: ar71xx
+  SUBTARGET: generic
+  PROFILE: tl-wr841n-v11
+  FLASH_SIZE: 16
+  RAM_SIZE: 64
+  CCACHE_DIR: /tmp/ccache
+  DL_DIR: ${{ github.workspace }}/dl
+  CCACHE_MAXSIZE: 2G
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@main
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        path: custom-configs
+        
+    - name: Setup Cache
+      if: ${{ github.event.inputs.enable_cache == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ github.workspace }}/ccache
+          ${{ github.workspace }}/dl
+        key: ${{ runner.os }}-immortalwrt-${{ env.TARGET }}-${{ hashFiles('custom-configs/scripts/*.sh', 'custom-configs/config/**') }}-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-immortalwrt-${{ env.TARGET }}-
+          ${{ runner.os }}-immortalwrt-
+          
+    - name: Install Dependencies
+      run: |
+        echo "========================================"
+        echo "Installing build dependencies..."
+        echo "========================================"
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          ccache \
+          clang \
+          flex \
+          bison \
+          g++ \
+          gawk \
+          gcc-multilib \
+          g++-multilib \
+          gettext \
+          git \
+          libncurses5-dev \
+          libncursesw5-dev \
+          libssl-dev \
+          python3 \
+          python3-setuptools \
+          rsync \
+          swig \
+          unzip \
+          zlib1g-dev \
+          file \
+          wget \
+          quilt \
+          upx \
+          libelf-dev \
+          libfdt-dev \
+          lzma \
+          lzop \
+          xsltproc \
+          docbook-xsl \
+          docbook-xml \
+          xmlto \
+          re2c
+        
+    - name: Setup CCache
+      if: ${{ github.event.inputs.enable_cache == 'true' }}
+      run: |
+        echo "========================================"
+        echo "Setting up CCache..."
+        echo "========================================"
+        mkdir -p ${{ env.CCACHE_DIR }}
+        echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
+        echo "CCACHE_MAXSIZE=${{ env.CCACHE_MAXSIZE }}" >> $GITHUB_ENV
+        ccache --zero-stats
+        
+    - name: Clone ImmortalWrt Source
+      run: |
+        echo "========================================"
+        echo "Cloning ImmortalWrt source code..."
+        echo "========================================"
+        git clone --depth=1 -b openwrt-21.02 https://github.com/immortalwrt/immortalwrt.git
+        cd immortalwrt
+        
+    - name: Update and Install Feeds
+      run: |
+        echo "========================================"
+        echo "Updating feeds..."
+        echo "========================================"
+        cd immortalwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        
+    - name: Apply Custom Configuration
+      run: |
+        echo "========================================"
+        echo "Applying custom configuration..."
+        echo "========================================"
+        cd immortalwrt
+        
+        # Apply custom configs
+        if [ -f ../custom-configs/scripts/customize.sh ]; then
+          chmod +x ../custom-configs/scripts/customize.sh
+          ../custom-configs/scripts/customize.sh
+        fi
+        
+        # Copy config files
+        if [ -d ../custom-configs/config ]; then
+          mkdir -p files/etc/config
+          cp -rf ../custom-configs/config/* files/etc/config/ || true
+        fi
+        
+    - name: Clean Build (Optional)
+      if: ${{ github.event.inputs.clean_build == 'true' }}
+      run: |
+        echo "========================================"
+        echo "Cleaning build directory..."
+        echo "========================================"
+        cd immortalwrt
+        make clean
+        
+    - name: Configure Build
+      run: |
+        echo "========================================"
+        echo "Configuring build..."
+        echo "========================================"
+        cd immortalwrt
+        
+        # Generate default config
+        make defconfig
+        
+        # Apply AR9331 specific configuration for 16MB Flash
+        cat >> .config << EOF
+CONFIG_TARGET_ar71xx=y
+CONFIG_TARGET_ar71xx_generic=y
+CONFIG_TARGET_ar71xx_generic_DEVICE_tl-wr841-v11=y
 
-      - name: 初始化环境
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev file wget
+# Set correct flash size for 16MB
+CONFIG_TARGET_KERNEL_PARTSIZE=4
+CONFIG_TARGET_ROOTFS_PARTSIZE=12
 
-      - name: 设置缓存
-        if: ${{ github.event.inputs.enable_cache == 'true' }}
-        uses: actions/cache@v4
-        with:
-          path: ~/cache
-          key: immortalwrt-cache-${{ github.run_id }}
+# Enable 64MB RAM support
+CONFIG_TARGET_ar71xx_generic_DEVICE_tl-wr841-v11_64M=y
 
-      - name: 下载源码
-        run: |
-          git clone -b openwrt-21.02 https://github.com/immortalwrt/immortalwrt.git immortalwrt
-          cd immortalwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+# Filesystem
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_SQUASHFS_BLOCK_SIZE=256
 
-      - name: 复制自定义配置
-        run: |
-          cp -rf ./config/* immortalwrt/
-          chmod +x ./scripts/*.sh
-          ./scripts/customize.sh
+# Wireless
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_PACKAGE_kmod-ath9k-common=y
+CONFIG_PACKAGE_kmod-ath9k-htc=y
+CONFIG_ATH_USER_REGD=y
 
-      - name: 构建固件
-        run: |
-          cd immortalwrt
-          make defconfig
-          make download -j$(nproc)
-          make -j$(nproc) V=s
-
-      - name: 整理输出文件
-        run: |
-          mkdir -p ./firmware
-          cp -rf immortalwrt/bin/targets/*/* ./firmware/
-
-      - name: 上传固件
-        uses: actions/upload-artifact@v4
-        with:
-          name: ImmortalWrt固件
-          path: ./firmware/
+# CCache optimization
+CONFIG_CCACHE=y
+CONFIG_CCACHE_DIR="${{ env.CCACHE_DIR }}"
+CONFIG_BUILD_LOG=y
+EOF
+        
+        # Finalize config
+        make defconfig
+        
+    - name: Download Packages
+      run: |
+        echo "========================================"
+        echo "Downloading packages..."
+        echo "========================================"
+        cd immortalwrt
+        
+        # Use parallel download
+        make -j$(($(nproc) * 2)) download || make -j1 download V=s
+        
+    - name: Build Firmware
+      run: |
+        echo "========================================"
+        echo "Building firmware..."
+        echo "========================================"
+        cd immortalwrt
+        
+        # Get number of CPU cores
+        CORES=$(nproc)
+        echo "Using $CORES cores for compilation"
+        
+        # Build with CCache if enabled
+        if [ "${{ github.event.inputs.enable_cache }}" = "true" ]; then
+          echo "Building with CCache enabled"
+          make -j$CORES V=s CCACHE_DIR="${{ env.CCACHE_DIR }}"
+        else
+          echo "Building without CCache"
+          make -j$CORES V=s
+        fi
+        
+        # If parallel build fails, try single core
+        if [ $? -ne 0 ]; then
+          echo "Parallel build failed, trying single core..."
+          make -j1 V=s
+        fi
+        
+    - name: Collect Firmware Files
+      run: |
+        echo "========================================"
+        echo "Collecting firmware files..."
+        echo "========================================"
+        
+        # Create output directory
+        mkdir -p firmware_output
+        
+        # Find and copy firmware files
+        find immortalwrt/bin/targets -type f \( -name "*squashfs*sysupgrade*" -o -name "*factory*" \) | while read file; do
+          echo "Found firmware: $(basename "$file")"
+          cp "$file" firmware_output/
+        done
+        
+        # List all collected files
+        echo "Collected firmware files:"
+        ls -la firmware_output/ || echo "No files found"
+        
+    - name: Show CCache Stats
+      if: ${{ github.event.inputs.enable_cache == 'true' }}
+      run: |
+        echo "========================================"
+        echo "CCache Statistics:"
+        echo "========================================"
+        ccache -s || echo "CCache not available"
+        
+    - name: Upload Firmware Artifact
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ImmortalWrt-AR9331-固件
+        path: firmware_output/
+        retention-days: 30
+        
+    - name: Build Summary
+      if: always()
+      run: |
+        echo "========================================"
+        echo "Build Summary:"
+        echo "========================================"
+        echo "Target: ${{ env.TARGET }}/${{ env.SUBTARGET }}"
+        echo "Profile: ${{ env.PROFILE }}"
+        echo "Flash Size: ${{ env.FLASH_SIZE }}MB"
+        echo "RAM Size: ${{ env.RAM_SIZE }}MB"
+        echo "CCache Enabled: ${{ github.event.inputs.enable_cache }}"
+        echo "Clean Build: ${{ github.event.inputs.clean_build }}"
+        echo "========================================"
