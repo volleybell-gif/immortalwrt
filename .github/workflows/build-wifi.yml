@@ -1,272 +1,154 @@
-name: Build ImmortalWrt for AR9331 (16MB)
+name: Build ImmortalWrt for AR9331
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: '固件版本号'
-        required: true
-        default: 'v1.0'
   push:
     branches: [ main, master ]
-    paths:
-      - 'config/**'
-      - '.github/workflows/build-wifi.yml'
   schedule:
     - cron: '0 2 * * *'
-
-env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-21.02
-  FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: .config
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-      with:
-        path: config-files
-    
-    - name: Get number of CPU cores
-      id: cpu-cores
-      run: |
-        echo "CPU_CORES=$(nproc)" >> $GITHUB_ENV
-        echo "使用 $CPU_CORES 线程进行编译"
-    
-    - name: Setup ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        key: ${{ github.ref }}-${{ github.sha }}
-        max-size: 1G
     
     - name: Setup build environment
       run: |
-        echo "开始设置编译环境..."
+        echo "设置编译环境..."
         sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          clang \
-          flex \
-          g++ \
-          gawk \
-          gcc-multilib \
-          gettext \
-          git \
-          libncurses5-dev \
-          libssl-dev \
-          python3 \
-          python3-distutils \
-          python3-setuptools \
-          rsync \
-          unzip \
-          zlib1g-dev \
-          file \
-          wget \
-          subversion \
-          quilt \
-          gperf \
-          bison \
-          curl
-        echo "编译环境设置完成"
+        sudo apt-get install -y build-essential clang flex g++ gawk gcc-multilib \
+          gettext git libncurses5-dev libssl-dev python3 python3-distutils \
+          python3-setuptools rsync unzip zlib1g-dev file wget subversion quilt \
+          gperf bison curl ccache
+        echo "环境设置完成"
     
-    - name: Clone ImmortalWrt source
+    - name: Setup ccache
       run: |
-        echo "正在克隆 ImmortalWrt 源码..."
-        git clone --depth=1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
+        echo "设置 ccache 缓存..."
+        ccache -M 1G
+        ccache -s
+    
+    - name: Clone source code
+      run: |
+        echo "克隆 ImmortalWrt 源码..."
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt -b openwrt-21.02 openwrt
         cd openwrt
-        echo "源码克隆完成"
     
-    - name: Copy custom configuration
+    - name: Create config files
       run: |
-        echo "复制自定义配置文件..."
+        echo "创建配置文件..."
         cd openwrt
         
-        # 复制 feeds 配置
-        if [ -f ../config-files/feeds.conf ]; then
-          cp ../config-files/feeds.conf .
-          echo "已复制 feeds.conf"
-        fi
+        # 创建 feeds.conf
+        echo "创建 feeds.conf..."
+        cat > feeds.conf << 'EOF'
+src-git packages https://github.com/immortalwrt/packages;openwrt-21.02
+src-git luci https://github.com/immortalwrt/luci;openwrt-21.02
+src-git routing https://github.com/openwrt/routing;openwrt-21.02
+src-git telephony https://github.com/openwrt/telephony;openwrt-21.02
+EOF
         
-        # 复制通用配置文件
-        if [ -d ../config-files/files ]; then
-          echo "复制系统配置文件..."
-          cp -r ../config-files/files .
-        fi
+        # 创建初始 .config
+        echo "创建 .config..."
+        cat > .config << 'EOF'
+CONFIG_TARGET_ath79=y
+CONFIG_TARGET_ath79_generic=y
+CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wr841n-v9=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_KERNEL_PARTSIZE=4
+CONFIG_TARGET_ROOTFS_PARTSIZE=8
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_PACKAGE_kmod-ath=y
+CONFIG_PACKAGE_wpad-basic-wolfssl=y
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+EOF
         
-        echo "配置文件复制完成"
+        # 添加网络配置
+        echo "添加网络配置..."
+        cat >> .config << 'EOF'
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_ip6tables=y
+CONFIG_PACKAGE_ppp=y
+CONFIG_PACKAGE_ppp-mod-pppoe=y
+EOF
+        
+        echo "配置文件创建完成"
     
     - name: Update and install feeds
       run: |
-        echo "更新和安装 feeds..."
+        echo "更新 feeds..."
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        echo "Feeds 安装完成"
     
-    - name: Apply AR9331 specific configuration
+    - name: Configure additional packages
       run: |
-        echo "应用 AR9331 特定配置..."
+        echo "配置额外软件包..."
         cd openwrt
         
-        # 创建临时配置
-        cat > /tmp/ar9331_config << 'EOF'
-CONFIG_TARGET_ath79=y
-CONFIG_TARGET_ath79_generic=y
-# 使用16MB flash的通用配置
-CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wr841n-v9=y
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_INITRAMFS=n
-CONFIG_PACKAGE_kmod-ath9k=y
-CONFIG_PACKAGE_kmod-ath9k-common=y
-CONFIG_PACKAGE_kmod-ath=y
-CONFIG_PACKAGE_HOSTAPD=y
-CONFIG_PACKAGE_HOSTAPD_COMMON=y
-CONFIG_PACKAGE_WPA_SUPPLICANT=y
-CONFIG_PACKAGE_DNSMASQ=y
-CONFIG_PACKAGE_DROPBEAR=y
-CONFIG_PACKAGE_FIREWALL=y
-CONFIG_PACKAGE_LUCI=y
-CONFIG_PACKAGE_LUCI_SSL=y
-CONFIG_PACKAGE_LUCI_PROTO_IPV6=y
-CONFIG_PACKAGE_LUCI_PROTO_PPPOE=y
-CONFIG_PACKAGE_LUCI_APP_FIREWALL=y
-CONFIG_PACKAGE_LUCI_APP_HD_IDLE=y
-CONFIG_PACKAGE_LUCI_APP_OPENVPN=y
-CONFIG_PACKAGE_LUCI_APP_P910ND=y
-CONFIG_PACKAGE_LUCI_APP_QOS=y
-CONFIG_PACKAGE_LUCI_APP_SQM=y
-CONFIG_PACKAGE_LUCI_APP_TTYD=y
-CONFIG_PACKAGE_LUCI_APP_UHTTPD=y
-CONFIG_PACKAGE_LUCI_APP_WOL=y
-CONFIG_PACKAGE_LUCI_THEME_BOOTSTRAP=y
-EOF
+        # 生成默认配置
+        make defconfig
         
-        # 应用配置
-        cat /tmp/ar9331_config >> .config
-        echo "AR9331 配置应用完成"
-    
-    - name: Configure memory and flash settings
-      run: |
-        echo "配置内存和 Flash 设置..."
-        cd openwrt
-        
-        # 64MB DDR2 和 16MB SPI Flash 配置
+        # 配置额外需要的包
         cat >> .config << 'EOF'
-# 16MB Flash 分区配置
-CONFIG_TARGET_KERNEL_PARTSIZE=4
-CONFIG_TARGET_ROOTFS_PARTSIZE=8
-CONFIG_TARGET_OPTIMIZATION="-Os -pipe -m32"
-CONFIG_KERNEL_CPU_MIPS32_R2=y
-CONFIG_DEVEL=y
-CONFIG_TOOLCHAINOPTS=y
-CONFIG_GCC_USE_VERSION_8=y
-CONFIG_GCC_VERSION="8.4.0"
-EOF
-        
-        # 启用无线和网络配置
-        cat >> .config << 'EOF'
-# 无线配置
-CONFIG_PACKAGE_wpad-basic-wolfssl=y
-# USB 支持
 CONFIG_PACKAGE_kmod-usb-core=y
 CONFIG_PACKAGE_kmod-usb2=y
 CONFIG_PACKAGE_kmod-usb-storage=y
-# 文件系统支持
 CONFIG_PACKAGE_kmod-fs-ext4=y
 CONFIG_PACKAGE_kmod-fs-vfat=y
-CONFIG_PACKAGE_kmod-fs-ntfs=y
 CONFIG_PACKAGE_block-mount=y
-# 网络工具
-CONFIG_PACKAGE_iptables-mod-extra=y
-CONFIG_PACKAGE_iptables-mod-ipopt=y
-CONFIG_PACKAGE_iptables-mod-tproxy=y
-# 额外功能
+CONFIG_PACKAGE_luci-app-firewall=y
 CONFIG_PACKAGE_luci-app-upnp=y
-CONFIG_PACKAGE_luci-app-ddns=y
-CONFIG_PACKAGE_luci-app-samba=y
-CONFIG_PACKAGE_samba4-server=y
 CONFIG_PACKAGE_autossh=y
 CONFIG_PACKAGE_openssh-sftp-server=y
 EOF
-        echo "内存和 Flash 配置完成"
-    
-    - name: Run menuconfig (optional)
-      run: |
-        echo "运行 menuconfig 进行最终确认..."
-        cd openwrt
+        
+        # 更新配置
         make defconfig
-        echo "配置准备就绪"
+        echo "配置完成"
     
     - name: Download packages
       run: |
         echo "下载软件包..."
         cd openwrt
-        make download -j${{ env.CPU_CORES }}
-        find dl -size -1024c -exec rm -f {} \;
-        echo "软件包下载完成"
+        make download -j$(nproc)
+        echo "下载完成"
     
     - name: Build firmware
       run: |
         echo "开始编译固件..."
         cd openwrt
         
-        # 第一次尝试：使用多线程编译
-        if make -j${{ env.CPU_CORES }} V=s 2>&1 | tee build.log; then
-          echo "第一次编译成功"
-        else
-          echo "第一次编译失败，尝试第二次编译..."
-          # 第二次尝试：使用多线程但不同参数
-          if make -j${{ env.CPU_CORES }} V=sc 2>&1 | tee -a build.log; then
-            echo "第二次编译成功"
-          else
-            echo "第二次编译失败，使用单线程编译..."
-            # 第三次尝试：使用单线程
-            make -j1 V=s 2>&1 | tee -a build.log
-          fi
-        fi
+        # 获取核心数
+        CORES=$(nproc)
+        echo "使用 $CORES 线程编译"
+        
+        # 编译
+        make -j$CORES V=s 2>&1 | tee build.log
         
         echo "编译完成"
     
-    - name: Check build output
+    - name: Check build result
       run: |
-        echo "检查编译输出..."
-        cd openwrt/bin/targets/ath79/generic || exit 1
-        ls -la *.bin 2>/dev/null || echo "警告：未找到固件文件"
-        pwd
+        echo "检查编译结果..."
+        if ls openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin 2>/dev/null; then
+          echo "固件编译成功！"
+          ls -lh openwrt/bin/targets/ath79/generic/*.bin
+        else
+          echo "未找到固件文件，编译可能失败"
+          exit 1
+        fi
     
-    - name: Upload firmware artifact
+    - name: Upload firmware
       uses: actions/upload-artifact@v3
       with:
-        name: immortalwrt-ar9331-16mb-firmware
-        path: |
-          openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin
-          openwrt/bin/targets/ath79/generic/*.manifest
-          openwrt/bin/targets/ath79/generic/sha256sums
-          openwrt/build.log
-        retention-days: 7
-    
-    - name: Create release
-      if: github.event_name == 'workflow_dispatch'
-      uses: softprops/action-gh-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ar9331-16mb-${{ github.sha }}
-        name: ImmortalWrt AR9331 16MB Flash
-        body: |
-          AR9331 64MB DDR2 + 16MB SPI Flash 固件
-          编译时间: ${{ github.event.inputs.version || github.sha }}
-          特性:
-          - ImmortalWrt 21.02
-          - 唯一网口配置为 LAN (192.168.1.1)
-          - 无线已开启
-          - 支持 USB 存储
-          - 包含 Luci 界面
-        files: openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin
-        draft: false
-        prerelease: false
+        name: immortalwrt-ar9331-16mb
+        path: openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin
