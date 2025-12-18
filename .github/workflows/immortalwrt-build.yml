@@ -27,7 +27,7 @@ jobs:
 
       - name: 设置缓存
         if: ${{ github.event.inputs.enable_cache == 'true' }}
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/cache
           key: immortalwrt-cache-${{ github.run_id }}
@@ -58,7 +58,7 @@ jobs:
           cp -rf immortalwrt/bin/targets/*/* ./firmware/
 
       - name: 上传固件
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt固件
           path: ./firmware/
