@@ -214,16 +214,28 @@ EOF
       run: |
         echo "开始编译固件..."
         cd openwrt
-        # 使用多线程编译，如果失败则回退到单线程
-        make -j${{ env.CPU_CORES }} V=s 2>&1 | tee build.log || \
-          make -j${{ env.CPU_CORES }} V=sc 2>&1 | tee -a build.log || \
-          make -j1 V=s 2>&1 | tee -a build.log
+        
+        # 第一次尝试：使用多线程编译
+        if make -j${{ env.CPU_CORES }} V=s 2>&1 | tee build.log; then
+          echo "第一次编译成功"
+        else
+          echo "第一次编译失败，尝试第二次编译..."
+          # 第二次尝试：使用多线程但不同参数
+          if make -j${{ env.CPU_CORES }} V=sc 2>&1 | tee -a build.log; then
+            echo "第二次编译成功"
+          else
+            echo "第二次编译失败，使用单线程编译..."
+            # 第三次尝试：使用单线程
+            make -j1 V=s 2>&1 | tee -a build.log
+          fi
+        fi
+        
         echo "编译完成"
     
     - name: Check build output
       run: |
         echo "检查编译输出..."
-        cd openwrt/bin/targets/ath79/generic
+        cd openwrt/bin/targets/ath79/generic || exit 1
         ls -la *.bin 2>/dev/null || echo "警告：未找到固件文件"
         pwd
     
