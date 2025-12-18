@@ -12,14 +12,14 @@ on:
           - generic-ar9331-16m
           - generic-ar9331-16m-luci
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - '.github/workflows/build-ar9331-16m.yml'
       - 'config/**'
       - 'files/**'
       - 'patches/**'
   schedule:
-    - cron: '0 2 * * 0'  # 每周日 2:00 UTC
+    - cron: '0 2 * * 0'
 
 env:
   OPENWRT_VERSION: "21.02"
@@ -145,7 +145,7 @@ EOF
         echo "CONFIG_CCACHE=y" >> .config
         echo "CONFIG_BUILD_LOG=y" >> .config
         echo "CONFIG_TARGET_IPV6=y" >> .config
-        echo "CONFIG_MAKE_J=$(nproc)" >> .config
+        echo "CONFIG_MAKE_J=\$(nproc)" >> .config  # 修复：使用转义符
         echo "CONFIG_SIGNED_PACKAGES=n" >> .config
         echo "CONFIG_BUILDBOT=n" >> .config
 
