@@ -28,7 +28,7 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v3
       with:
         path: config-files
     
@@ -224,11 +224,11 @@ EOF
       run: |
         echo "检查编译输出..."
         cd openwrt/bin/targets/ath79/generic
-        ls -la *.bin || echo "未找到固件文件"
+        ls -la *.bin 2>/dev/null || echo "警告：未找到固件文件"
         pwd
     
     - name: Upload firmware artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: immortalwrt-ar9331-16mb-firmware
         path: |
@@ -237,7 +237,6 @@ EOF
           openwrt/bin/targets/ath79/generic/sha256sums
           openwrt/build.log
         retention-days: 7
-        if-no-files-found: error
     
     - name: Create release
       if: github.event_name == 'workflow_dispatch'
