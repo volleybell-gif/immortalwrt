@@ -1,0 +1,134 @@
+name: Build ImmortalWrt for AR9331
+
+on:
+  workflow_dispatch: # 手动触发工作流
+  push:
+    branches: [ main, master ]
+    paths: [ '**' ] # 任何文件变动都可能触发
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  # 核心配置：修改这里来适配你的设备和需求
+  IMAGE_NAME: immortalwrt
+  TARGET: ath79
+  SUBTARGET: tiny
+  PROFILE: tplink_tl-wr703n # AR9331的一个常见机型示例，请根据你的路由器型号修改
+  PACKAGES: luci luci-compat luci-theme-bootstrap luci-app-firewall -dnsmasq dnsmasq-full
+  # 注意：此处通过PROFILE隐含指定了设备，并确保生成squashfs-sysupgrade.bin
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # 使用最新Ubuntu系统
+
+    steps:
+    - name: Checkout ImmortalWrt Source Code
+      uses: actions/checkout@v4
+      with:
+        repository: immortalwrt/immortalwrt
+        ref: openwrt-21.02 # 指定分支
+        submodules: recursive
+
+    - name: Cache build artifacts (ccache)
+      uses: actions/cache@v4
+      with:
+        path: ccache
+        key: ${{ runner.os }}-ccache-${{ env.TARGET }}-${{ env.SUBTARGET }}-${{ hashFiles('**/.config', '**/feeds.conf') }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-${{ env.TARGET }}-${{ env.SUBTARGET }}-
+
+    - name: Update and install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
+        gettext git java-propose-classpath libelf-dev libncurses5-dev \
+        libncursesw5-dev libssl-dev python python2.7-dev python3 unzip wget \
+        python3-distutils python3-setuptools rsync subversion swig time xsltproc \
+        zlib1g-dev
+
+    - name: Setup ccache
+      run: |
+        echo "CCACHE_DIR=$(pwd)/ccache" >> $GITHUB_ENV
+        ccache --max-size=2G
+        ccache -s
+
+    # 步骤：生成基础配置
+    - name: Generate default config
+      run: |
+        echo "开始生成基础配置..."
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        # 根据环境变量生成目标配置
+        make defconfig
+        # 先应用一个基础配置，以便后续menuconfig能运行
+        echo "CONFIG_TARGET_ath79=y" > .config
+        echo "CONFIG_TARGET_ath79_tiny=y" >> .config
+        echo "CONFIG_TARGET_ath79_tiny_tplink_tl-wr703n=y" >> .config # 请替换为你的确切PROFILE
+
+    # 步骤：应用自定义配置文件
+    - name: Apply custom configuration
+      run: |
+        echo "应用自定义配置..."
+
+        # 方法一：直接使用sed修改.config文件（直接但需谨慎）
+        # 设置目标系统类型
+        sed -i 's/^CONFIG_TARGET_ath79=.*/CONFIG_TARGET_ath79=y/' .config
+        sed -i 's/^CONFIG_TARGET_ath79_tiny=.*/CONFIG_TARGET_ath79_tiny=y/' .config
+        # 设置具体的设备profile，这是控制固件类型和名称的关键
+        sed -i 's/^CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr703n=.*/CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr703n=y/' .config
+        # 启用LuCI和中文语言包
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
+
+        # 方法二（推荐）：使用diffconfig文件。确保你的配置文件在仓库根目录，例如命名为 'ar9331-diffconfig'
+        # 如果你有一个预先准备好的diffconfig文件，可以在这里应用它：
+        # cat /path/to/your/ar9331-diffconfig >> .config
+
+        # 启用ccache以加速后续编译
+        echo "CONFIG_CCACHE=y" >> .config
+
+        # 最后运行make defconfig整理配置
+        make defconfig
+
+    # 步骤：运行Menuconfig进行最终检查和微调 (可选，但在云编译中通常跳过或自动化)
+    # 注意：此步骤需要虚拟显示设备，在CI中可能需要额外配置
+    - name: Optional - Run make menuconfig (headless)
+      run: |
+        echo "注意：在CI中运行menuconfig可能比较复杂，通常建议使用预置的diffconfig文件。"
+        # 如果你必须使用，可以安装必要的包并通过脚本自动化：
+        # sudo apt-get install -y libncurses5-dev
+        # 这里使用一个预设的答案流来避免交互，例如选择特定的包
+        # 示例：自动选中一些包，但这需要复杂的expect脚本或预设配置。
+        # 更实用的方法是：跳过此步骤，完全依赖你的diffconfig文件。
+
+    # 步骤：开始构建固件
+    - name: Build firmware with multicore and ccache
+      run: |
+        echo "使用多线程和ccache开始构建..."
+        # 获取可用的CPU核心数，用于-j参数
+        NPROC=$(nproc)
+        # 使用V=s查看详细输出，便于调试；初次构建建议加上-j$(($NPROC + 1)) 来加速
+        make -j$(($NPROC + 1)) V=s 2>&1 | tee build.log | tail -50
+        # 或者为了更干净的日志，可以不加V=s： make -j$(($NPROC + 1)) world
+        echo "构建步骤完成。"
+
+    # 步骤：上传固件作为工作流制品
+    - name: Upload firmware artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.IMAGE_NAME }}-${{ env.TARGET }}-${{ env.SUBTARGET }}-${{ env.PROFILE }}
+        path: |
+          bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/openwrt-*.bin
+          # 明确指定你想要上传的文件，通常是sysupgrade.bin
+          bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/openwrt-*-squashfs-sysupgrade.bin
+        retention-days: 7
+
+    # 步骤：上传构建日志（可选，但调试时很有用）
+    - name: Upload build log
+      uses: actions/upload-artifact@v4
+      if: always() # 即使构建失败也上传日志
+      with:
+        name: build-log
+        path: |
+          build.log
+          logs/ # 如果有logs目录
