@@ -155,7 +155,6 @@ EOF
     - name: Add LuCI configuration (for luci builds)
       run: |
         cd immortalwrt
-        BUILD_TYPE="${{ github.event.inputs.build_type || 'ar9331-16m' }}"
         if [[ "$BUILD_TYPE" == "ar9331-16m-luci" ]]; then
           cat >> .config << 'EOF'
 # LuCI配置
@@ -171,6 +170,8 @@ EOF
         else
           echo "不包含LuCI界面"
         fi
+      env:
+        BUILD_TYPE: ${{ github.event.inputs.build_type || 'ar9331-16m' }}
 
     - name: Show configuration
       run: |
