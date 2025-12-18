@@ -1,4 +1,4 @@
-name: Build ImmortalWrt for AR9331
+name: Build ImmortalWrt for AR9331 (16MB)
 
 on:
   workflow_dispatch:
@@ -26,21 +26,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     
-    strategy:
-      matrix:
-        threads: [$(nproc)]
-      
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         path: config-files
+    
+    - name: Get number of CPU cores
+      id: cpu-cores
+      run: |
+        echo "CPU_CORES=$(nproc)" >> $GITHUB_ENV
+        echo "使用 $CPU_CORES 线程进行编译"
     
     - name: Setup ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         key: ${{ github.ref }}-${{ github.sha }}
-        max-size: 500M
+        max-size: 1G
     
     - name: Setup build environment
       run: |
@@ -66,13 +68,16 @@ jobs:
           file \
           wget \
           subversion \
-          quilt
+          quilt \
+          gperf \
+          bison \
+          curl
         echo "编译环境设置完成"
     
     - name: Clone ImmortalWrt source
       run: |
         echo "正在克隆 ImmortalWrt 源码..."
-        git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
+        git clone --depth=1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
         cd openwrt
         echo "源码克隆完成"
     
@@ -112,8 +117,8 @@ jobs:
         cat > /tmp/ar9331_config << 'EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_generic=y
-CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-mr3020-v1=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=16
+# 使用16MB flash的通用配置
+CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wr841n-v9=y
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_ROOTFS_INITRAMFS=n
 CONFIG_PACKAGE_kmod-ath9k=y
@@ -150,10 +155,11 @@ EOF
         echo "配置内存和 Flash 设置..."
         cd openwrt
         
-        # 64MB DDR2 和 8MB SPI Flash 配置
+        # 64MB DDR2 和 16MB SPI Flash 配置
         cat >> .config << 'EOF'
-CONFIG_TARGET_KERNEL_PARTSIZE=1
-CONFIG_TARGET_ROOTFS_PARTSIZE=4
+# 16MB Flash 分区配置
+CONFIG_TARGET_KERNEL_PARTSIZE=4
+CONFIG_TARGET_ROOTFS_PARTSIZE=8
 CONFIG_TARGET_OPTIMIZATION="-Os -pipe -m32"
 CONFIG_KERNEL_CPU_MIPS32_R2=y
 CONFIG_DEVEL=y
@@ -164,15 +170,28 @@ EOF
         
         # 启用无线和网络配置
         cat >> .config << 'EOF'
+# 无线配置
 CONFIG_PACKAGE_wpad-basic-wolfssl=y
+# USB 支持
 CONFIG_PACKAGE_kmod-usb-core=y
 CONFIG_PACKAGE_kmod-usb2=y
 CONFIG_PACKAGE_kmod-usb-storage=y
+# 文件系统支持
 CONFIG_PACKAGE_kmod-fs-ext4=y
 CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_kmod-fs-ntfs=y
 CONFIG_PACKAGE_block-mount=y
-CONFIG_PACKAGE_luci-app-mwan3=y
+# 网络工具
 CONFIG_PACKAGE_iptables-mod-extra=y
+CONFIG_PACKAGE_iptables-mod-ipopt=y
+CONFIG_PACKAGE_iptables-mod-tproxy=y
+# 额外功能
+CONFIG_PACKAGE_luci-app-upnp=y
+CONFIG_PACKAGE_luci-app-ddns=y
+CONFIG_PACKAGE_luci-app-samba=y
+CONFIG_PACKAGE_samba4-server=y
+CONFIG_PACKAGE_autossh=y
+CONFIG_PACKAGE_openssh-sftp-server=y
 EOF
         echo "内存和 Flash 配置完成"
     
@@ -187,7 +206,7 @@ EOF
       run: |
         echo "下载软件包..."
         cd openwrt
-        make download -j${{ matrix.threads }}
+        make download -j${{ env.CPU_CORES }}
         find dl -size -1024c -exec rm -f {} \;
         echo "软件包下载完成"
     
@@ -195,22 +214,48 @@ EOF
       run: |
         echo "开始编译固件..."
         cd openwrt
-        make -j${{ matrix.threads }} V=s 2>&1 | tee build.log || make -j1 V=s
+        # 使用多线程编译，如果失败则回退到单线程
+        make -j${{ env.CPU_CORES }} V=s 2>&1 | tee build.log || \
+          make -j${{ env.CPU_CORES }} V=sc 2>&1 | tee -a build.log || \
+          make -j1 V=s 2>&1 | tee -a build.log
         echo "编译完成"
     
+    - name: Check build output
+      run: |
+        echo "检查编译输出..."
+        cd openwrt/bin/targets/ath79/generic
+        ls -la *.bin || echo "未找到固件文件"
+        pwd
+    
     - name: Upload firmware artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: immortalwrt-ar9331-firmware
+        name: immortalwrt-ar9331-16mb-firmware
         path: |
           openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin
           openwrt/bin/targets/ath79/generic/*.manifest
+          openwrt/bin/targets/ath79/generic/sha256sums
           openwrt/build.log
         retention-days: 7
+        if-no-files-found: error
     
-    - name: Upload to release (optional)
+    - name: Create release
       if: github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ar9331-${{ github.sha }}
+        tag_name: ar9331-16mb-${{ github.sha }}
+        name: ImmortalWrt AR9331 16MB Flash
+        body: |
+          AR9331 64MB DDR2 + 16MB SPI Flash 固件
+          编译时间: ${{ github.event.inputs.version || github.sha }}
+          特性:
+          - ImmortalWrt 21.02
+          - 唯一网口配置为 LAN (192.168.1.1)
+          - 无线已开启
+          - 支持 USB 存储
+          - 包含 Luci 界面
         files: openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin
+        draft: false
+        prerelease: false
