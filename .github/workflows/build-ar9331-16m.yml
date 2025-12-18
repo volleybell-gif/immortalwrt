@@ -45,11 +45,10 @@ jobs:
         submodules: recursive
         path: immortalwrt
 
-    - name: Checkout custom configs (optional)
+    - name: Checkout custom configs
       uses: actions/checkout@v4
       with:
         path: custom-configs
-      if: always()
 
     - name: Setup ccache
       uses: actions/cache@v4
@@ -95,85 +94,141 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Configure for generic AR9331 16M
+    - name: Apply base configuration
+      run: |
+        cd immortalwrt
+        rm -f .config
+        
+        # 应用基础配置
+        if [ -f ../custom-configs/config/ar9331-16m-base.config ]; then
+          cat ../custom-configs/config/ar9331-16m-base.config > .config
+        else
+          # 如果没有配置文件，使用默认配置
+          echo "使用默认基础配置..."
+          cat > .config << 'EOF'
+CONFIG_TARGET_ath79=y
+CONFIG_TARGET_ath79_tiny=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=128
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_JFFS2=n
+CONFIG_VMLINUX_COMPRESSION_NONE=y
+EOF
+        fi
+        
+        make defconfig
+
+    - name: Apply device configuration
       run: |
         cd immortalwrt
         
-        # 清除现有配置
-        rm -f .config
-        
-        # 创建基础配置文件 - 不使用heredoc以避免YAML解析问题
-        echo "CONFIG_TARGET_ath79=y" > .config
-        echo "CONFIG_TARGET_ath79_tiny=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=128" >> .config
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_JFFS2=n" >> .config
-        echo "CONFIG_VMLINUX_COMPRESSION_NONE=y" >> .config
-
-        # 应用基础配置
-        make defconfig
-        
-        # 添加设备选择 - 选择几个常见的AR9331设备
-        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr741nd-v4_16M=y" >> .config
-        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr740n-v4_16M=y" >> .config
-        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr740n-v5_16M=y" >> .config
-        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr703n_16M=y" >> .config
-        echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
-
-        # 无线配置
-        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
-        echo "CONFIG_PACKAGE_hostapd-common=y" >> .config
-        echo "CONFIG_PACKAGE_wpad-basic-wolfssl=y" >> .config
-        echo "CONFIG_PACKAGE_iw=y" >> .config
-        echo "CONFIG_PACKAGE_wireless-tools=y" >> .config
-
-        # 网络配置
-        echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq_full_dhcp=y" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> .config
-        echo "CONFIG_PACKAGE_dropbear=y" >> .config
-        echo "CONFIG_PACKAGE_firewall=y" >> .config
-        echo "CONFIG_PACKAGE_iptables=y" >> .config
-        echo "CONFIG_PACKAGE_ip6tables=y" >> .config
-        echo "CONFIG_PACKAGE_ppp=y" >> .config
-        echo "CONFIG_PACKAGE_ppp-mod-pppoe=y" >> .config
-        echo "CONFIG_PACKAGE_odhcpd-ipv6only=y" >> .config
-        echo "CONFIG_PACKAGE_odhcp6c=y" >> .config
-
-        # 编译配置
-        echo "CONFIG_DEVEL=y" >> .config
-        echo "CONFIG_CCACHE=y" >> .config
-        echo "CONFIG_BUILD_LOG=y" >> .config
-        echo "CONFIG_TARGET_IPV6=y" >> .config
-        
-        # 获取CPU核心数
-        CPU_CORES=$(nproc)
-        echo "CONFIG_MAKE_J=$CPU_CORES" >> .config
-        
-        echo "CONFIG_SIGNED_PACKAGES=n" >> .config
-        echo "CONFIG_BUILDBOT=n" >> .config
-
-        # 网络设置
-        echo "CONFIG_TARGET_PREINIT_SUPPRESS_NOIFACE=y" >> .config
-        echo "CONFIG_TARGET_PREINIT_TIMEOUT=5" >> .config
-        echo "CONFIG_TARGET_PREINIT_IFNAME=eth0" >> .config
-        echo "CONFIG_TARGET_PREINIT_IP=192.168.1.1" >> .config
-        echo "CONFIG_TARGET_PREINIT_NETMASK=255.255.255.0" >> .config
-        echo "CONFIG_TARGET_PREINIT_BROADCAST=192.168.1.255" >> .config
-
-        # 根据输入选择是否包含LuCI
-        BUILD_TYPE="${{ github.event.inputs.build_type }}"
-        if [ "$BUILD_TYPE" = "generic-ar9331-16m-luci" ]; then
-          echo "CONFIG_PACKAGE_luci=y" >> .config
-          echo "CONFIG_PACKAGE_luci-base=y" >> .config
-          echo "CONFIG_PACKAGE_luci-compat=y" >> .config
-          echo "CONFIG_PACKAGE_luci-mod-admin-full=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-firewall=y" >> .config
-          echo "CONFIG_PACKAGE_luci-proto-ipv6=y" >> .config
-          echo "CONFIG_PACKAGE_luci-proto-ppp=y" >> .config
+        # 应用设备配置
+        if [ -f ../custom-configs/config/ar9331-16m-devices.config ]; then
+          cat ../custom-configs/config/ar9331-16m-devices.config >> .config
+        else
+          echo "使用默认设备配置..."
+          echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr741nd-v4_16M=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr740n-v4_16M=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr740n-v5_16M=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr703n_16M=y" >> .config
+          echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
         fi
 
+    - name: Apply package configuration
+      run: |
+        cd immortalwrt
+        
+        # 应用软件包配置
+        if [ -f ../custom-configs/config/ar9331-16m-packages.config ]; then
+          cat ../custom-configs/config/ar9331-16m-packages.config >> .config
+        else
+          echo "使用默认软件包配置..."
+          echo "# 无线配置" >> .config
+          echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
+          echo "CONFIG_PACKAGE_hostapd-common=y" >> .config
+          echo "CONFIG_PACKAGE_wpad-basic-wolfssl=y" >> .config
+          echo "CONFIG_PACKAGE_iw=y" >> .config
+          echo "CONFIG_PACKAGE_wireless-tools=y" >> .config
+          
+          echo "# 网络配置" >> .config
+          echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
+          echo "CONFIG_PACKAGE_dnsmasq_full_dhcp=y" >> .config
+          echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> .config
+          echo "CONFIG_PACKAGE_dropbear=y" >> .config
+          echo "CONFIG_PACKAGE_firewall=y" >> .config
+          echo "CONFIG_PACKAGE_iptables=y" >> .config
+          echo "CONFIG_PACKAGE_ip6tables=y" >> .config
+          echo "CONFIG_PACKAGE_ppp=y" >> .config
+          echo "CONFIG_PACKAGE_ppp-mod-pppoe=y" >> .config
+          echo "CONFIG_PACKAGE_odhcpd-ipv6only=y" >> .config
+          echo "CONFIG_PACKAGE_odhcp6c=y" >> .config
+        fi
+
+    - name: Apply network configuration
+      run: |
+        cd immortalwrt
+        
+        # 应用网络配置
+        if [ -f ../custom-configs/config/ar9331-16m-network.config ]; then
+          cat ../custom-configs/config/ar9331-16m-network.config >> .config
+        else
+          echo "使用默认网络配置..."
+          echo "# 网络设置" >> .config
+          echo "CONFIG_TARGET_PREINIT_SUPPRESS_NOIFACE=y" >> .config
+          echo "CONFIG_TARGET_PREINIT_TIMEOUT=5" >> .config
+          echo "CONFIG_TARGET_PREINIT_IFNAME=eth0" >> .config
+          echo "CONFIG_TARGET_PREINIT_IP=192.168.1.1" >> .config
+          echo "CONFIG_TARGET_PREINIT_NETMASK=255.255.255.0" >> .config
+          echo "CONFIG_TARGET_PREINIT_BROADCAST=192.168.1.255" >> .config
+        fi
+
+    - name: Apply build configuration
+      run: |
+        cd immortalwrt
+        
+        # 应用编译配置
+        CPU_CORES=$(nproc)
+        
+        if [ -f ../custom-configs/config/ar9331-16m-build.config ]; then
+          cat ../custom-configs/config/ar9331-16m-build.config >> .config
+        else
+          echo "使用默认编译配置..."
+          echo "# 编译配置" >> .config
+          echo "CONFIG_DEVEL=y" >> .config
+          echo "CONFIG_CCACHE=y" >> .config
+          echo "CONFIG_BUILD_LOG=y" >> .config
+          echo "CONFIG_TARGET_IPV6=y" >> .config
+          echo "CONFIG_MAKE_J=$CPU_CORES" >> .config
+          echo "CONFIG_SIGNED_PACKAGES=n" >> .config
+          echo "CONFIG_BUILDBOT=n" >> .config
+        fi
+
+    - name: Apply LuCI configuration if selected
+      run: |
+        cd immortalwrt
+        
+        # 如果选择包含LuCI，则应用LuCI配置
+        BUILD_TYPE="${{ github.event.inputs.build_type }}"
+        if [ "$BUILD_TYPE" = "generic-ar9331-16m-luci" ]; then
+          if [ -f ../custom-configs/config/ar9331-16m-luci.config ]; then
+            cat ../custom-configs/config/ar9331-16m-luci.config >> .config
+          else
+            echo "应用默认LuCI配置..."
+            echo "# LuCI配置" >> .config
+            echo "CONFIG_PACKAGE_luci=y" >> .config
+            echo "CONFIG_PACKAGE_luci-base=y" >> .config
+            echo "CONFIG_PACKAGE_luci-compat=y" >> .config
+            echo "CONFIG_PACKAGE_luci-mod-admin-full=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-firewall=y" >> .config
+            echo "CONFIG_PACKAGE_luci-proto-ipv6=y" >> .config
+            echo "CONFIG_PACKAGE_luci-proto-ppp=y" >> .config
+          fi
+        fi
+
+    - name: Finalize configuration
+      run: |
+        cd immortalwrt
+        
         # 应用完整配置
         make defconfig
         
@@ -181,16 +236,17 @@ jobs:
         echo "配置摘要:"
         ./scripts/diffconfig.sh
 
-    - name: Apply custom configurations
+    - name: Apply custom files and patches
       run: |
         cd immortalwrt
         
-        # 如果有自定义配置目录，应用它们
+        # 应用自定义文件
         if [ -d ../custom-configs/files ]; then
-          echo "应用自定义文件配置..."
+          echo "应用自定义文件..."
           cp -r ../custom-configs/files/* files/ 2>/dev/null || true
         fi
         
+        # 应用补丁
         if [ -d ../custom-configs/patches ]; then
           echo "应用补丁..."
           find ../custom-configs/patches -name "*.patch" -exec git apply {} \; 2>/dev/null || true
@@ -209,7 +265,7 @@ jobs:
         if [ ${PIPESTATUS[0]} -eq 0 ]; then
           echo "编译成功！"
         else
-          echo "编译可能失败，检查日志..."
+          echo "编译失败，检查日志..."
           tail -100 build.log
           exit 1
         fi
@@ -236,7 +292,7 @@ jobs:
           done
         fi
         
-        # 复制配置文件
+        # 复制配置文件和日志
         cp .config ../artifacts/immortalwrt.config
         cp build.log ../artifacts/build.log
         
