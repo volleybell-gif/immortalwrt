@@ -84,7 +84,7 @@ jobs:
         cd immortalwrt
         rm -f .config .config.old
         
-        # 基本配置 - 避免使用复杂的多行字符串
+        # 基本配置
         echo "CONFIG_TARGET_ath79=y" > .config
         echo "CONFIG_TARGET_ath79_generic=y" >> .config
         echo "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-wr703n-v1=y" >> .config
