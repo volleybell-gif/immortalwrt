@@ -95,12 +95,15 @@ EOF
         # 使用所有CPU核心进行构建
         make -j$(nproc) V=s 2>&1 | tee build.log
         
-        # 检查是否生成固件
-        if [ -f bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/openwrt-*${{ env.PROFILE }}-squashfs-sysupgrade.bin ]; then
+        # 检查是否生成固件 - 修复变量引用语法
+        if ls bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/openwrt-*${{ env.PROFILE }}-squashfs-sysupgrade.bin 1> /dev/null 2>&1; then
           echo "固件构建成功!"
           ls -la bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/
         else
           echo "错误：未找到固件文件"
+          # 列出目录内容以帮助调试
+          echo "目标目录内容:"
+          ls -la bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/ || true
           exit 1
         fi
 
