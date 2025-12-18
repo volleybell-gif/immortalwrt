@@ -60,20 +60,18 @@ jobs:
     - name: Apply target configuration
       run: |
         echo "应用目标配置..."
-        cat > .config << 'EOF'
-CONFIG_TARGET_ath79=y
-CONFIG_TARGET_ath79_tiny=y
-CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr703n=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=16
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_PACKAGE_luci=y
-CONFIG_PACKAGE_luci-compat=y
-CONFIG_PACKAGE_luci-theme-bootstrap=y
-CONFIG_PACKAGE_wpad-basic-wolfssl=y
-CONFIG_PACKAGE_iptables-mod-extra=y
-CONFIG_PACKAGE_kmod-ipt-extra=y
-CONFIG_CCACHE=y
-EOF
+        echo "CONFIG_TARGET_ath79=y" > .config
+        echo "CONFIG_TARGET_ath79_tiny=y" >> .config
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr703n=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16" >> .config
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        echo "CONFIG_PACKAGE_luci-compat=y" >> .config
+        echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
+        echo "CONFIG_PACKAGE_wpad-basic-wolfssl=y" >> .config
+        echo "CONFIG_PACKAGE_iptables-mod-extra=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-ipt-extra=y" >> .config
+        echo "CONFIG_CCACHE=y" >> .config
         echo "配置已写入.config文件"
         make defconfig
         echo "基础配置应用完成！"
