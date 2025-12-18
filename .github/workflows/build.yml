@@ -7,9 +7,6 @@ on:
   schedule:
     - cron: '0 2 * * 0'
 
-env:
-  CONFIG_FILE: .config
-
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -60,103 +57,132 @@ jobs:
           swig \
           unzip \
           wget \
-          zlib1g-dev \
-          upx-ucl
+          zlib1g-dev
         ccache -o compression=true
         ccache -M 5G
         ccache -s
 
-    - name: Configure for AR9331 16M
+    - name: Configure for generic AR9331 16M
       run: |
-        # 创建基本配置
-        echo "CONFIG_TARGET_ath79=y" > $CONFIG_FILE
-        echo "CONFIG_TARGET_ath79_tiny=y" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr741nd-v4_16M=y" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=128" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_ROOTFS_JFFS2=n" >> $CONFIG_FILE
-        echo "CONFIG_VMLINUX_COMPRESSION_NONE=y" >> $CONFIG_FILE
+        # 清除现有配置
+        rm -f .config
+        
+        # 基础配置
+        echo "CONFIG_TARGET_ath79=y" > .config
+        echo "CONFIG_TARGET_ath79_tiny=y" >> .config
+        echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
+        
+        # 启用所有AR9331设备（通过启用所有tiny设备）
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-mr10u=y" >> .config
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-mr3020-v1=y" >> .config
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-mr3040-v2=y" >> .config
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr703n=y" >> .config
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr740n-v4=y" >> .config
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr740n-v5=y" >> .config
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr741nd-v4=y" >> .config
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_ar9331_tplink_tl-wr743nd-v1=y" >> .config
+        
+        # 16M闪存支持
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=128" >> .config  # 128 * 1024K = 131072K = 128MB（足够16M使用）
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_JFFS2=n" >> .config
         
         # 无线配置
-        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_hostapd-common=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_wpad-basic-wolfssl=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_iw=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_wireless-tools=y" >> $CONFIG_FILE
-        echo "CONFIG_ATH_USER_REGD=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_ATH_DEBUG=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
+        echo "CONFIG_PACKAGE_hostapd-common=y" >> .config
+        echo "CONFIG_PACKAGE_wpad-basic-wolfssl=y" >> .config
+        echo "CONFIG_PACKAGE_iw=y" >> .config
+        echo "CONFIG_PACKAGE_wireless-tools=y" >> .config
         
         # 网络配置
-        echo "CONFIG_PACKAGE_dnsmasq-full=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_dnsmasq_full_dhcp=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_dropbear=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_firewall=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_iptables=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_ip6tables=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_ppp=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_ppp-mod-pppoe=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_odhcpd-ipv6only=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_odhcp6c=y" >> $CONFIG_FILE
-        echo "CONFIG_PACKAGE_kmod-ipt-offload=y" >> $CONFIG_FILE
+        echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq_full_dhcp=y" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y" >> .config
+        echo "CONFIG_PACKAGE_dropbear=y" >> .config
+        echo "CONFIG_PACKAGE_firewall=y" >> .config
+        echo "CONFIG_PACKAGE_iptables=y" >> .config
+        echo "CONFIG_PACKAGE_ip6tables=y" >> .config
+        echo "CONFIG_PACKAGE_ppp=y" >> .config
+        echo "CONFIG_PACKAGE_ppp-mod-pppoe=y" >> .config
+        echo "CONFIG_PACKAGE_odhcpd-ipv6only=y" >> .config
+        echo "CONFIG_PACKAGE_odhcp6c=y" >> .config
         
         # 编译配置
-        echo "CONFIG_DEVEL=y" >> $CONFIG_FILE
-        echo "CONFIG_CCACHE=y" >> $CONFIG_FILE
-        echo "CONFIG_BUILD_LOG=y" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_IPV6=y" >> $CONFIG_FILE
-        echo "CONFIG_MAKE_J=\$(nproc)" >> $CONFIG_FILE
+        echo "CONFIG_DEVEL=y" >> .config
+        echo "CONFIG_CCACHE=y" >> .config
+        echo "CONFIG_TARGET_IPV6=y" >> .config
+        echo "CONFIG_MAKE_J=\$(nproc)" >> .config
         
-        # 禁用签名以避免 usign 错误
-        echo "CONFIG_SIGNED_PACKAGES=n" >> $CONFIG_FILE
+        # 网络设置 - 将所有网口设为LAN，IP为192.168.1.1
+        echo "CONFIG_TARGET_PREINIT_SUPPRESS_NOIFACE=y" >> .config
+        echo "CONFIG_TARGET_PREINIT_TIMEOUT=5" >> .config
+        echo "CONFIG_TARGET_PREINIT_IFNAME=eth0" >> .config
+        echo "CONFIG_TARGET_PREINIT_IP=192.168.1.1" >> .config
+        echo "CONFIG_TARGET_PREINIT_NETMASK=255.255.255.0" >> .config
+        echo "CONFIG_TARGET_PREINIT_BROADCAST=192.168.1.255" >> .config
         
-        # 网络设置
-        echo "CONFIG_TARGET_PREINIT_SUPPRESS_NOIFACE=y" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_PREINIT_TIMEOUT=5" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_PREINIT_IFNAME=eth0" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_PREINIT_IP=192.168.1.1" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_PREINIT_NETMASK=255.255.255.0" >> $CONFIG_FILE
-        echo "CONFIG_TARGET_PREINIT_BROADCAST=192.168.1.255" >> $CONFIG_FILE
-        
-        # 禁用 LuCI（可选）
-        echo "# CONFIG_PACKAGE_luci is not set" >> $CONFIG_FILE
+        # 禁用签名和构建机器人
+        echo "CONFIG_SIGNED_PACKAGES=n" >> .config
+        echo "CONFIG_BUILDBOT=n" >> .config
 
     - name: Apply configuration
       run: |
-        echo "Applying configuration..."
+        echo "应用配置..."
         make defconfig
+        echo "配置摘要："
         ./scripts/diffconfig.sh
 
     - name: Build firmware
       run: |
         CPU_CORES=$(nproc)
-        echo "Using $CPU_CORES CPU cores for compilation"
+        echo "使用 $CPU_CORES 个CPU核心进行编译"
         
-        # 编译内核和基础系统
+        # 编译固件
         make -j$CPU_CORES V=s 2>&1 | tee build.log
         
-        # 检查是否有固件生成
-        if find bin/targets/ath79/tiny/ -name "*.bin" 2>/dev/null | grep -q .; then
-          echo "Firmware files found!"
-        else
-          echo "No firmware files found, trying alternative build method..."
-          # 尝试只构建目标
-          make -j$CPU_CORES target/install V=s 2>&1 | tee build2.log
+        # 如果编译失败，尝试单独编译内核
+        if [ $? -ne 0 ]; then
+          echo "完整编译失败，尝试单独编译内核..."
+          make -j$CPU_CORES target/compile V=s 2>&1 | tee build_compile.log
+          make -j$CPU_CORES target/install V=s 2>&1 | tee build_install.log
         fi
 
-    - name: Find and list firmware
+    - name: List generated firmware
       run: |
-        echo "Searching for firmware files..."
-        find . -type f \( -name "*.bin" -o -name "*.trx" -o -name "*.img" \) 2>/dev/null | grep -v "\.git" | head -20
-        echo ""
-        echo "Checking ath79/tiny directory..."
+        echo "生成的固件文件："
         if [ -d bin/targets/ath79/tiny/ ]; then
-          ls -la bin/targets/ath79/tiny/
+          find bin/targets/ath79/tiny/ -name "*.bin" -type f | head -20
           echo ""
-          echo "Files in bin/targets/ath79/tiny/:"
-          find bin/targets/ath79/tiny/ -type f | head -20
+          echo "AR9331相关固件："
+          find bin/targets/ath79/tiny/ -name "*ar9331*" -o -name "*wr740n*" -o -name "*wr741nd*" -o -name "*wr703n*" -o -name "*mr3020*" -type f 2>/dev/null || echo "未找到特定AR9331固件"
+        else
+          echo "bin/targets/ath79/tiny/ 目录不存在"
         fi
+
+    - name: Extract specific AR9331 firmware
+      run: |
+        echo "提取AR9331固件..."
+        mkdir -p ar9331_firmware/
+        
+        # 查找并复制AR9331相关的固件
+        if [ -d bin/targets/ath79/tiny/ ]; then
+          # 复制所有可能的固件
+          find bin/targets/ath79/tiny/ -name "*.bin" -type f -exec cp {} ar9331_firmware/ \; 2>/dev/null || true
+          
+          # 如果找不到任何.bin文件，查找其他可能的固件格式
+          if [ ! -f ar9331_firmware/*.bin ] 2>/dev/null; then
+            find bin/targets/ath79/tiny/ -name "*.img" -o -name "*.trx" -type f -exec cp {} ar9331_firmware/ \; 2>/dev/null || true
+          fi
+        fi
+        
+        # 检查临时目录
+        if [ -d build_dir/target-mips_24kc_musl/linux-ath79_tiny/tmp/ ]; then
+          find build_dir/target-mips_24kc_musl/linux-ath79_tiny/tmp/ -name "*.bin" -type f -exec cp {} ar9331_firmware/ \; 2>/dev/null || true
+        fi
+        
+        echo "提取的固件："
+        ls -la ar9331_firmware/ 2>/dev/null || echo "未提取到固件"
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
@@ -164,6 +190,7 @@ jobs:
         name: immortalwrt-ar9331-16m-firmware
         path: |
           bin/targets/ath79/tiny/
+          ar9331_firmware/
         compression-level: 0
         if-no-files-found: warn
 
@@ -174,7 +201,8 @@ jobs:
         name: build-logs
         path: |
           build.log
-          ${{ env.CONFIG_FILE }}
+          build_compile.log
+          build_install.log
 
     - name: Show ccache statistics
       if: success()
