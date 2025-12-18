@@ -99,21 +99,13 @@ jobs:
         cd immortalwrt
         rm -f .config
         
-        # 应用基础配置
-        if [ -f ../custom-configs/config/ar9331-16m-base.config ]; then
-          cat ../custom-configs/config/ar9331-16m-base.config > .config
-        else
-          # 如果没有配置文件，使用默认配置
-          echo "使用默认基础配置..."
-          cat > .config << 'EOF'
-CONFIG_TARGET_ath79=y
-CONFIG_TARGET_ath79_tiny=y
-CONFIG_TARGET_ROOTFS_PARTSIZE=128
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_JFFS2=n
-CONFIG_VMLINUX_COMPRESSION_NONE=y
-EOF
-        fi
+        # 创建基础配置文件 - 使用多个echo命令代替heredoc
+        echo "CONFIG_TARGET_ath79=y" > .config
+        echo "CONFIG_TARGET_ath79_tiny=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=128" >> .config
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_JFFS2=n" >> .config
+        echo "CONFIG_VMLINUX_COMPRESSION_NONE=y" >> .config
         
         make defconfig
 
@@ -186,11 +178,15 @@ EOF
       run: |
         cd immortalwrt
         
-        # 应用编译配置
+        # 获取CPU核心数
         CPU_CORES=$(nproc)
         
+        # 应用编译配置
         if [ -f ../custom-configs/config/ar9331-16m-build.config ]; then
           cat ../custom-configs/config/ar9331-16m-build.config >> .config
+          # 替换CPU核心数占位符
+          sed -i "s/^# CONFIG_MAKE_J is not set/CONFIG_MAKE_J=$CPU_CORES/" .config
+          sed -i "s/CONFIG_MAKE_J=.*/CONFIG_MAKE_J=$CPU_CORES/" .config
         else
           echo "使用默认编译配置..."
           echo "# 编译配置" >> .config
