@@ -1,24 +1,22 @@
 name: Build ImmortalWrt for AR9331
 
 on:
-  workflow_dispatch: # 手动触发工作流
+  workflow_dispatch:
   push:
     branches: [ main, master ]
     paths: [ '**' ]
   schedule:
-    - cron: '0 2 * * 0' # 每周日凌晨2点自动构建（可选）
+    - cron: '0 2 * * 0'
 
 env:
   IMAGE_NAME: immortalwrt
   TARGET: ath79
   SUBTARGET: tiny
-  # 重要：请根据你的确切路由器型号修改以下PROFILE
-  # 常见AR9331设备：tplink_tl-wr703n, tplink_tl-wr740n-v4, gl-inet-6408A-v1
   PROFILE: tplink_tl-wr703n
   
 jobs:
   build:
-    runs-on: ubuntu-20.04 # 使用 Ubuntu 20.04 确保 Python 2.7 可用
+    runs-on: ubuntu-20.04
 
     steps:
     - name: Checkout ImmortalWrt Source Code
@@ -41,28 +39,33 @@ jobs:
 
     - name: Install dependencies
       run: |
+        echo "正在安装构建依赖..."
         sudo apt-get update
         sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
         gettext git java-propose-classpath libelf-dev libncurses5-dev \
         libncursesw5-dev libssl-dev python2 python2-dev python3 python3-dev \
         python3-distutils python3-setuptools rsync subversion swig time \
         xsltproc zlib1g-dev curl
+        echo "依赖安装完成！"
 
     - name: Setup ccache
       run: |
+        echo "设置ccache缓存..."
         echo "CCACHE_DIR=$(pwd)/ccache" >> $GITHUB_ENV
         ccache --max-size=2G
         ccache -s
 
     - name: Update feeds
       run: |
+        echo "更新feeds..."
         ./scripts/feeds update -a
         ./scripts/feeds install -a
+        echo "feeds更新完成！"
 
     - name: Apply target configuration
       run: |
-        # 创建基础的配置
-        cat > .config << EOF
+        echo "应用目标配置..."
+        cat > .config << 'EOF'
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_tiny=y
 CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr703n=y
@@ -77,33 +80,43 @@ CONFIG_PACKAGE_iptables-mod-extra=y
 CONFIG_PACKAGE_kmod-ipt-extra=y
 CONFIG_CCACHE=y
 EOF
-        
-        # 应用配置
+        echo "配置已写入.config文件"
         make defconfig
+        echo "基础配置应用完成！"
 
     - name: Apply custom configuration files
       run: |
-        # 如果有自定义配置文件，复制到正确位置
+        echo "检查自定义配置文件..."
         if [ -d files ]; then
-          echo "复制自定义配置文件..."
+          echo "找到自定义配置文件，正在复制..."
           cp -rf files/* .
+          echo "自定义配置文件复制完成！"
+        else
+          echo "未找到自定义配置文件"
         fi
 
     - name: Build firmware
       run: |
         echo "开始构建固件..."
-        # 使用所有CPU核心进行构建
+        CPU_CORES=$(nproc)
+        echo "使用CPU核心数: $CPU_CORES"
+        echo "开始编译过程..."
         make -j$(nproc) V=s 2>&1 | tee build.log
+        echo "编译完成！"
         
-        # 检查是否生成固件 - 修复变量引用语法
-        if ls bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/openwrt-*${{ env.PROFILE }}-squashfs-sysupgrade.bin 1> /dev/null 2>&1; then
+        # 修复这里的语法：使用明确的路径变量
+        echo "检查生成的固件文件..."
+        FIRMWARE_PATH="bin/targets/$TARGET/$SUBTARGET"
+        echo "固件路径: $FIRMWARE_PATH"
+        
+        if ls "$FIRMWARE_PATH"/openwrt-*"$PROFILE"*squashfs-sysupgrade.bin 1> /dev/null 2>&1; then
           echo "固件构建成功!"
-          ls -la bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/
+          echo "生成的固件文件:"
+          ls -la "$FIRMWARE_PATH"/openwrt-*"$PROFILE"*squashfs-sysupgrade.bin
         else
           echo "错误：未找到固件文件"
-          # 列出目录内容以帮助调试
           echo "目标目录内容:"
-          ls -la bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/ || true
+          ls -la "$FIRMWARE_PATH" || true
           exit 1
         fi
 
