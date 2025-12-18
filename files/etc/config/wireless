@@ -1,18 +1,15 @@
-# 无线配置文件
 config wifi-device 'radio0'
     option type 'mac80211'
-    option channel '11'
+    option channel '11' # 选择一个干扰较小的信道
     option hwmode '11g'
     option path 'platform/ar933x_wmac'
     option htmode 'HT20'
-    option disabled '0'
-    option txpower '20'
-    option country 'US'
+    option disabled '0' # 确保无线未禁用
 
 config wifi-iface 'default_radio0'
     option device 'radio0'
-    option network 'lan'
+    option network 'lan' # 桥接到 LAN
     option mode 'ap'
-    option ssid 'ImmortalWrt-AR9331'
-    option encryption 'none'
-    option wmm '0'
+    option ssid 'ImmortalWrt-AR9331' # 你的无线网络名称
+    option encryption 'psk2' # 启用 WPA2-PSK 加密
+    option key 'your_secure_password' # 请务必修改为一个强密码
