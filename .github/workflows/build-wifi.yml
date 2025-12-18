@@ -1,0 +1,216 @@
+name: Build ImmortalWrt for AR9331
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '固件版本号'
+        required: true
+        default: 'v1.0'
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'config/**'
+      - '.github/workflows/build-wifi.yml'
+  schedule:
+    - cron: '0 2 * * *'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-21.02
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    
+    strategy:
+      matrix:
+        threads: [$(nproc)]
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        path: config-files
+    
+    - name: Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ github.ref }}-${{ github.sha }}
+        max-size: 500M
+    
+    - name: Setup build environment
+      run: |
+        echo "开始设置编译环境..."
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          clang \
+          flex \
+          g++ \
+          gawk \
+          gcc-multilib \
+          gettext \
+          git \
+          libncurses5-dev \
+          libssl-dev \
+          python3 \
+          python3-distutils \
+          python3-setuptools \
+          rsync \
+          unzip \
+          zlib1g-dev \
+          file \
+          wget \
+          subversion \
+          quilt
+        echo "编译环境设置完成"
+    
+    - name: Clone ImmortalWrt source
+      run: |
+        echo "正在克隆 ImmortalWrt 源码..."
+        git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
+        cd openwrt
+        echo "源码克隆完成"
+    
+    - name: Copy custom configuration
+      run: |
+        echo "复制自定义配置文件..."
+        cd openwrt
+        
+        # 复制 feeds 配置
+        if [ -f ../config-files/feeds.conf ]; then
+          cp ../config-files/feeds.conf .
+          echo "已复制 feeds.conf"
+        fi
+        
+        # 复制通用配置文件
+        if [ -d ../config-files/files ]; then
+          echo "复制系统配置文件..."
+          cp -r ../config-files/files .
+        fi
+        
+        echo "配置文件复制完成"
+    
+    - name: Update and install feeds
+      run: |
+        echo "更新和安装 feeds..."
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        echo "Feeds 安装完成"
+    
+    - name: Apply AR9331 specific configuration
+      run: |
+        echo "应用 AR9331 特定配置..."
+        cd openwrt
+        
+        # 创建临时配置
+        cat > /tmp/ar9331_config << 'EOF'
+CONFIG_TARGET_ath79=y
+CONFIG_TARGET_ath79_generic=y
+CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-mr3020-v1=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=16
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_INITRAMFS=n
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_PACKAGE_kmod-ath9k-common=y
+CONFIG_PACKAGE_kmod-ath=y
+CONFIG_PACKAGE_HOSTAPD=y
+CONFIG_PACKAGE_HOSTAPD_COMMON=y
+CONFIG_PACKAGE_WPA_SUPPLICANT=y
+CONFIG_PACKAGE_DNSMASQ=y
+CONFIG_PACKAGE_DROPBEAR=y
+CONFIG_PACKAGE_FIREWALL=y
+CONFIG_PACKAGE_LUCI=y
+CONFIG_PACKAGE_LUCI_SSL=y
+CONFIG_PACKAGE_LUCI_PROTO_IPV6=y
+CONFIG_PACKAGE_LUCI_PROTO_PPPOE=y
+CONFIG_PACKAGE_LUCI_APP_FIREWALL=y
+CONFIG_PACKAGE_LUCI_APP_HD_IDLE=y
+CONFIG_PACKAGE_LUCI_APP_OPENVPN=y
+CONFIG_PACKAGE_LUCI_APP_P910ND=y
+CONFIG_PACKAGE_LUCI_APP_QOS=y
+CONFIG_PACKAGE_LUCI_APP_SQM=y
+CONFIG_PACKAGE_LUCI_APP_TTYD=y
+CONFIG_PACKAGE_LUCI_APP_UHTTPD=y
+CONFIG_PACKAGE_LUCI_APP_WOL=y
+CONFIG_PACKAGE_LUCI_THEME_BOOTSTRAP=y
+EOF
+        
+        # 应用配置
+        cat /tmp/ar9331_config >> .config
+        echo "AR9331 配置应用完成"
+    
+    - name: Configure memory and flash settings
+      run: |
+        echo "配置内存和 Flash 设置..."
+        cd openwrt
+        
+        # 64MB DDR2 和 8MB SPI Flash 配置
+        cat >> .config << 'EOF'
+CONFIG_TARGET_KERNEL_PARTSIZE=1
+CONFIG_TARGET_ROOTFS_PARTSIZE=4
+CONFIG_TARGET_OPTIMIZATION="-Os -pipe -m32"
+CONFIG_KERNEL_CPU_MIPS32_R2=y
+CONFIG_DEVEL=y
+CONFIG_TOOLCHAINOPTS=y
+CONFIG_GCC_USE_VERSION_8=y
+CONFIG_GCC_VERSION="8.4.0"
+EOF
+        
+        # 启用无线和网络配置
+        cat >> .config << 'EOF'
+CONFIG_PACKAGE_wpad-basic-wolfssl=y
+CONFIG_PACKAGE_kmod-usb-core=y
+CONFIG_PACKAGE_kmod-usb2=y
+CONFIG_PACKAGE_kmod-usb-storage=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_luci-app-mwan3=y
+CONFIG_PACKAGE_iptables-mod-extra=y
+EOF
+        echo "内存和 Flash 配置完成"
+    
+    - name: Run menuconfig (optional)
+      run: |
+        echo "运行 menuconfig 进行最终确认..."
+        cd openwrt
+        make defconfig
+        echo "配置准备就绪"
+    
+    - name: Download packages
+      run: |
+        echo "下载软件包..."
+        cd openwrt
+        make download -j${{ matrix.threads }}
+        find dl -size -1024c -exec rm -f {} \;
+        echo "软件包下载完成"
+    
+    - name: Build firmware
+      run: |
+        echo "开始编译固件..."
+        cd openwrt
+        make -j${{ matrix.threads }} V=s 2>&1 | tee build.log || make -j1 V=s
+        echo "编译完成"
+    
+    - name: Upload firmware artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: immortalwrt-ar9331-firmware
+        path: |
+          openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin
+          openwrt/bin/targets/ath79/generic/*.manifest
+          openwrt/build.log
+        retention-days: 7
+    
+    - name: Upload to release (optional)
+      if: github.event_name == 'workflow_dispatch'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ar9331-${{ github.sha }}
+        files: openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin
