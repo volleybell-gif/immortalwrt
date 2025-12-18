@@ -1,4 +1,4 @@
-name: Build ImmortalWrt for AR9331
+name: Build ImmortalWrt for AR9331 (16M Flash)
 
 on:
   workflow_dispatch:
@@ -11,11 +11,12 @@ env:
   IMAGE_NAME: immortalwrt
   TARGET: ath79
   SUBTARGET: tiny
-  PROFILE: tplink_tl-wr703n
+  # 关键修改：使用16M Flash的型号，而不是4M的型号
+  PROFILE: tplink_tl-wr841n-v11  # 这是16M Flash的常见AR9331型号
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 使用 Ubuntu 22.04
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout ImmortalWrt Source Code
@@ -36,20 +37,18 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-immortalwrt-
 
-    - name: Install dependencies with Python 2.7
+    - name: Install dependencies
       run: |
-        echo "正在安装构建依赖（包括Python 2.7）..."
+        echo "正在安装构建依赖..."
         sudo apt-get update
         
-        # 安装必要的工具
+        # Ubuntu 22.04安装Python 2.7
         sudo apt-get install -y software-properties-common
         sudo add-apt-repository -y ppa:deadsnakes/ppa
         sudo apt-get update
-        
-        # 安装Python 2.7和相关开发包
         sudo apt-get install -y python2.7 python2.7-dev
         
-        # 创建python2符号链接
+        # 创建符号链接
         sudo ln -sf /usr/bin/python2.7 /usr/bin/python2
         
         # 安装其他构建依赖
@@ -59,8 +58,6 @@ jobs:
         python3-setuptools rsync subversion swig time xsltproc zlib1g-dev curl
         
         echo "依赖安装完成！"
-        echo "Python 2.7版本："
-        python2.7 --version
 
     - name: Setup ccache
       run: |
@@ -76,67 +73,104 @@ jobs:
         ./scripts/feeds install -a
         echo "feeds更新完成！"
 
-    - name: Apply target configuration
+    - name: Apply minimal configuration
       run: |
-        echo "应用目标配置..."
-        echo "CONFIG_TARGET_ath79=y" > .config
+        echo "应用最小化配置..."
+        echo "重要：清空.config文件并只编译指定设备"
+        
+        # 清空.config文件
+        > .config
+        
+        # 基础目标配置
+        echo "CONFIG_TARGET_ath79=y" >> .config
         echo "CONFIG_TARGET_ath79_tiny=y" >> .config
-        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr703n=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16" >> .config
+        
+        # 关键：只编译我们指定的设备
+        # 禁用所有设备，然后启用我们需要的设备
+        echo "CONFIG_TARGET_DEVICE_ath79_tiny_DEVICE_tplink_tl-wr841n-v11=y" >> .config
+        
+        # 设置16M Flash分区
+        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16000" >> .config  # 16MB in KB
         echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_PACKAGE_luci=y" >> .config
-        echo "CONFIG_PACKAGE_luci-compat=y" >> .config
-        echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
+        
+        # 无线驱动（必须）
+        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config  # AR9331无线驱动
+        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
+        
+        # 精简的网络工具
+        echo "CONFIG_PACKAGE_iptables=y" >> .config
+        echo "CONFIG_PACKAGE_iptables-mod-ipopt=y" >> .config
+        echo "CONFIG_PACKAGE_iptables-mod-nat-extra=y" >> .config
+        
+        # DHCP服务器
+        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq-full=n" >> .config
+        
+        # 无线工具（精简版）
+        echo "CONFIG_PACKAGE_wpad-basic=y" >> .config
         echo "CONFIG_PACKAGE_wpad-basic-wolfssl=y" >> .config
-        echo "CONFIG_PACKAGE_iptables-mod-extra=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ipt-extra=y" >> .config
+        
+        # 基本系统工具
+        echo "CONFIG_PACKAGE_block-mount=y" >> .config
+        echo "CONFIG_PACKAGE_fstools=y" >> .config
+        
+        # 禁用LuCI以减小体积
+        echo "CONFIG_PACKAGE_luci=n" >> .config
+        echo "CONFIG_PACKAGE_luci-compat=n" >> .config
+        echo "CONFIG_PACKAGE_luci-theme-bootstrap=n" >> .config
+        
+        # 启用ccache加速
         echo "CONFIG_CCACHE=y" >> .config
-        echo "配置已写入.config文件"
+        
+        # 应用配置
         make defconfig
-        echo "基础配置应用完成！"
+        
+        echo "验证配置..."
+        echo "检查设备配置："
+        grep "CONFIG_TARGET_DEVICE" .config || true
+        echo "检查固件大小设置："
+        grep "CONFIG_TARGET_ROOTFS" .config || true
 
-    - name: Apply custom configuration files
+    - name: Build firmware (multithreaded)
       run: |
-        echo "检查自定义配置文件..."
-        if [ -d files ]; then
-          echo "找到自定义配置文件，正在复制..."
-          cp -rf files/* .
-          echo "自定义配置文件复制完成！"
-        else
-          echo "未找到自定义配置文件"
-        fi
-
-    - name: Build firmware
-      run: |
-        echo "开始构建固件..."
+        echo "开始多线程构建固件..."
         CPU_CORES=$(nproc)
-        echo "使用CPU核心数: $CPU_CORES"
-        echo "开始编译过程..."
-        make -j$(nproc) V=s 2>&1 | tee build.log
-        echo "编译完成！"
+        THREADS=$((CPU_CORES + 1))
+        echo "使用构建线程数: $THREADS"
         
-        echo "检查生成的固件文件..."
-        FIRMWARE_PATH="bin/targets/$TARGET/$SUBTARGET"
-        echo "固件路径: $FIRMWARE_PATH"
+        # 使用ccache和多线程加速构建
+        make -j$THREADS V=s 2>&1 | tee build.log
         
-        if ls "$FIRMWARE_PATH"/openwrt-*"$PROFILE"*squashfs-sysupgrade.bin > /dev/null 2>&1; then
-          echo "固件构建成功!"
-          echo "生成的固件文件:"
-          ls -la "$FIRMWARE_PATH"/openwrt-*"$PROFILE"*squashfs-sysupgrade.bin
+        echo "构建完成，检查结果..."
+        
+        # 检查固件是否生成
+        if find bin/targets -name "*squashfs-sysupgrade.bin" 2>/dev/null | head -1 | grep -q .; then
+          echo "固件构建成功！"
+          echo "生成的固件："
+          find bin/targets -name "*squashfs-sysupgrade.bin" -exec ls -la {} \;
+          
+          # 检查固件大小
+          for f in bin/targets/*/*/*squashfs-sysupgrade.bin; do
+            if [ -f "$f" ]; then
+              size=$(stat -c%s "$f")
+              size_mb=$(echo "scale=2; $size / 1024 / 1024" | bc)
+              echo "固件 $f 大小: ${size_mb}MB"
+            fi
+          done
         else
           echo "错误：未找到固件文件"
-          echo "目标目录内容:"
-          ls -la "$FIRMWARE_PATH" || true
+          echo "构建日志最后100行："
+          tail -100 build.log
           exit 1
         fi
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
-        name: immortalwrt-${{ env.PROFILE }}-$(date +'%Y%m%d-%H%M')
+        name: immortalwrt-16m-$(date +'%Y%m%d-%H%M')
         path: |
-          bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/openwrt-*squashfs-sysupgrade.bin
-          bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/config.buildinfo
+          bin/targets/**/*squashfs-sysupgrade.bin
+          bin/targets/**/config.buildinfo
         retention-days: 30
 
     - name: Upload build log
@@ -146,4 +180,3 @@ jobs:
         name: build-logs
         path: |
           build.log
-          logs/
