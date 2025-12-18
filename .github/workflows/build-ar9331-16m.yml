@@ -14,7 +14,7 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build-ar9331.yml'
+      - '.github/workflows/build-ar9331-16m.yml'
       - 'config/**'
       - 'files/**'
       - 'patches/**'
