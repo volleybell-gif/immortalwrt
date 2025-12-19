@@ -16,7 +16,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v3
 
     - name: Setup environment
       run: |
@@ -29,7 +29,7 @@ jobs:
           python3-dev curl libelf-dev xsltproc
 
     - name: Setup ccache
-      uses: actions/cache@v4
+      uses: actions/cache@v3
       with:
         path: /tmp/ccache
         key: ${{ runner.os }}-ccache-${{ github.sha }}
@@ -62,10 +62,18 @@ jobs:
       run: |
         cd openwrt
         echo "当前目录: $(pwd)"
+        echo "目录内容:"
         ls -la
         
         echo "运行配置脚本..."
         ./configure.sh
+        
+        echo "检查配置..."
+        echo "目标架构:"
+        grep "CONFIG_TARGET" .config
+        echo ""
+        echo "包配置:"
+        grep "CONFIG_PACKAGE" .config | head -20
         
         echo "运行设备树补丁脚本..."
         ./patch-dts.sh || echo "设备树补丁可能未应用，继续..."
@@ -76,8 +84,8 @@ jobs:
         echo "下载依赖..."
         make -j$BUILD_THREADS download 2>&1 | tail -50
         
-        echo "检查下载文件..."
-        ls -la dl/ | head -20
+        echo "检查目标目录..."
+        ls -la target/linux/ar71xx/
 
     - name: Build firmware
       run: |
@@ -88,24 +96,34 @@ jobs:
         export CCACHE_MAXSIZE=2G
         
         echo "开始编译 AR9331 固件..."
-        echo "使用线程数: $BUILD_THREADS"
+        echo "当前配置目标:"
+        grep "TARGET" .config
         
-        # 编译固件
-        time make -j$BUILD_THREADS V=s 2>&1 | tee build.log | tail -100
+        # 只编译目标，不编译其他架构
+        time make -j$BUILD_THREADS V=s 2>&1 | tee build.log
         
         echo "编译完成，检查输出..."
+        echo "查找固件文件..."
+        find bin/ -name "*.bin" -o -name "*.bin.gz" 2>/dev/null | head -20
+        
         if ls -la bin/targets/ar71xx/tiny/*.bin 2>/dev/null; then
           echo "✓ 固件生成成功！"
+          echo "生成的固件:"
           ls -lh bin/targets/ar71xx/tiny/*.bin
+          echo "文件大小:"
+          du -h bin/targets/ar71xx/tiny/*.bin
         else
           echo "✗ 错误：未找到生成的固件"
-          echo "查看构建日志..."
+          echo "可能的原因:"
+          echo "1. 目标架构配置不正确"
+          echo "2. 编译过程中出现错误"
+          echo "查看构建日志最后100行..."
           tail -100 build.log
           exit 1
         fi
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       if: success()
       with:
         name: immortalwrt-ar9331-firmware
