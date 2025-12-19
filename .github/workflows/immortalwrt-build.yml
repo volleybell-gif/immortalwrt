@@ -34,9 +34,7 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        path: custom-configs
-        
+      
     - name: Setup cache
       if: ${{ github.event.inputs.enable_cache == 'true' }}
       uses: actions/cache@v4
@@ -48,71 +46,150 @@ jobs:
         
     - name: Install dependencies
       run: |
+        echo "========================================"
+        echo "Installing build dependencies..."
+        echo "========================================"
         sudo apt-get update
         sudo apt-get install -y build-essential ccache clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libncursesw5-dev libssl-dev python3 python3-setuptools rsync swig unzip zlib1g-dev file wget
         
     - name: Clone ImmortalWrt source
       run: |
+        echo "========================================"
+        echo "Cloning ImmortalWrt source..."
+        echo "========================================"
         git clone --depth=1 -b openwrt-21.02 https://github.com/immortalwrt/immortalwrt.git
+        
+    - name: Copy custom scripts to ImmortalWrt
+      run: |
+        echo "========================================"
+        echo "Copying custom scripts..."
+        echo "========================================"
+        # 复制自定义脚本到 immortalwrt/scripts 目录
+        if [ -f scripts/customize.sh ]; then
+          cp scripts/customize.sh immortalwrt/scripts/
+          chmod +x immortalwrt/scripts/customize.sh
+        fi
+        
+        # 复制配置文件到 immortalwrt/files 目录
+        if [ -d config ]; then
+          mkdir -p immortalwrt/files/etc/config
+          cp -rf config/* immortalwrt/files/etc/config/
+        fi
         
     - name: Update feeds
       run: |
+        echo "========================================"
+        echo "Updating feeds..."
+        echo "========================================"
         cd immortalwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-    - name: Apply custom configurations
-      run: |
-        cd immortalwrt
-        
-        if [ -f ../custom-configs/scripts/customize.sh ]; then
-          chmod +x ../custom-configs/scripts/customize.sh
-          ../custom-configs/scripts/customize.sh
-        fi
-        
     - name: Clean build
       if: ${{ github.event.inputs.clean_build == 'true' }}
       run: |
+        echo "========================================"
+        echo "Cleaning build directory..."
+        echo "========================================"
         cd immortalwrt
         make clean
         
     - name: Configure build
       run: |
+        echo "========================================"
+        echo "Configuring build..."
+        echo "========================================"
         cd immortalwrt
+        
+        # 运行自定义配置脚本（如果存在）
+        if [ -f scripts/customize.sh ]; then
+          echo "Running custom configuration script..."
+          ./scripts/customize.sh
+        fi
+        
+        # 生成默认配置
         make defconfig
         
-        echo 'CONFIG_TARGET_ar71xx=y' >> .config
-        echo 'CONFIG_TARGET_ar71xx_generic=y' >> .config
-        echo 'CONFIG_TARGET_ar71xx_generic_DEVICE_tl-wr841-v11=y' >> .config
-        echo 'CONFIG_TARGET_KERNEL_PARTSIZE=4' >> .config
-        echo 'CONFIG_TARGET_ROOTFS_PARTSIZE=12' >> .config
-        echo 'CONFIG_TARGET_ROOTFS_SQUASHFS=y' >> .config
-        echo 'CONFIG_TARGET_SQUASHFS_BLOCK_SIZE=256' >> .config
-        echo 'CONFIG_PACKAGE_kmod-ath9k=y' >> .config
-        echo 'CONFIG_CCACHE=y' >> .config
+        # 应用AR9331特定配置
+        cat >> .config << 'EOF'
+CONFIG_TARGET_ar71xx=y
+CONFIG_TARGET_ar71xx_generic=y
+CONFIG_TARGET_ar71xx_generic_DEVICE_tl-wr841-v11=y
+CONFIG_TARGET_KERNEL_PARTSIZE=4
+CONFIG_TARGET_ROOTFS_PARTSIZE=12
+CONFIG_TARGET_ar71xx_generic_DEVICE_tl-wr841-v11_64M=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_SQUASHFS_BLOCK_SIZE=256
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_PACKAGE_kmod-ath9k-common=y
+CONFIG_PACKAGE_kmod-ath9k-htc=y
+CONFIG_ATH_USER_REGD=y
+CONFIG_CCACHE=y
+CONFIG_BUILD_LOG=y
+EOF
         
+        # 最终确定配置
         make defconfig
         
     - name: Download packages
       run: |
+        echo "========================================"
+        echo "Downloading packages..."
+        echo "========================================"
         cd immortalwrt
-        make download -j$(nproc)
+        make download -j$(nproc) || make download -j1 V=s
         
     - name: Build firmware
       run: |
+        echo "========================================"
+        echo "Building firmware..."
+        echo "========================================"
         cd immortalwrt
-        make -j$(nproc) V=s
+        
+        # 启用多线程编译
+        CORES=$(nproc)
+        echo "Using $CORES cores for compilation"
+        
+        # 使用CCache加速
+        if [ "${{ github.event.inputs.enable_cache }}" = "true" ]; then
+          echo "Building with CCache"
+          make -j$CORES V=s
+        else
+          echo "Building without CCache"
+          make -j$CORES V=s
+        fi
+        
+        # 如果并行构建失败，尝试单线程
+        if [ $? -ne 0 ]; then
+          echo "Parallel build failed, trying single thread..."
+          make -j1 V=s
+        fi
         
     - name: Collect firmware files
       run: |
+        echo "========================================"
+        echo "Collecting firmware files..."
+        echo "========================================"
         mkdir -p firmware_output
-        find immortalwrt/bin/targets -type f -name "*.bin" | head -10 | while read file; do
-          echo "Found: $(basename "$file")"
-          cp "$file" firmware_output/
-        done
+        
+        # 查找并复制所有固件文件
+        if [ -d immortalwrt/bin/targets ]; then
+          find immortalwrt/bin/targets -type f \( -name "*squashfs*sysupgrade*" -o -name "*.bin" \) | head -20 | while read file; do
+            echo "Found: $(basename "$file")"
+            cp "$file" firmware_output/
+          done
+        else
+          echo "No targets directory found"
+        fi
+        
+        # 显示收集到的文件
+        echo "Collected files:"
+        ls -la firmware_output/ 2>/dev/null || echo "No files collected"
         
     - name: Upload firmware artifact
+      if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: firmware
+        name: ImmortalWrt-AR9331-Firmware
         path: firmware_output/
+        retention-days: 30
