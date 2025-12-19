@@ -19,7 +19,7 @@ jobs:
     
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         path: config_files
 
@@ -128,14 +128,14 @@ jobs:
         make -j$(($CORES + 1)) V=s || make -j1 V=s
 
     - name: Upload Firmware Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-ar9331-firmware
         path: openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin
 
     - name: Upload ccache
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ccache
         path: ccache
