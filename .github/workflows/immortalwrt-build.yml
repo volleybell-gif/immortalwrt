@@ -1,142 +1,87 @@
 name: Build ImmortalWrt for AR9331
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 允许手动触发
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   schedule:
-    - cron: '0 2 * * 0'
+    # 可选：每周日凌晨自动编译，保持代码最新
+    - cron: '0 0 * * 0'
 
 env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-21.02
-  FEEDS_CONF: feeds.conf.default
+  TARGET: ath79
+  SUBTARGET: tiny
+  PROFILE: tplink_tl-wr703n-v1 # 与AR9331 64+16配置兼容的常见型号
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
-    
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-      with:
-        path: config_files
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Set up Environment
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
-          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev \
-          file wget curl ccache
+      - name: Setup ccache
+        uses: actions/cache@v3
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ env.TARGET }}-${{ hashFiles('scripts/configure.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ env.TARGET }}-
 
-    - name: Checkout ImmortalWrt Source
-      run: |
-        git clone --depth=1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          echo "安装编译依赖..."[citation:1][citation:6]
+          sudo apt-get install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+          g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+          libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+          libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano \
+          ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+          python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+          upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
 
-    - name: Copy Custom Files
-      run: |
-        cd openwrt
-        if [ -f ../config_files/${{ env.FEEDS_CONF }} ]; then
-          cp ../config_files/${{ env.FEEDS_CONF }} .
-        fi
-        if [ -d ../config_files/scripts ]; then
-          cp -rf ../config_files/scripts/* scripts/
-          chmod +x scripts/*.sh
-        fi
-        if [ -d ../config_files/files ]; then
-          mkdir -p files
-          cp -rf ../config_files/files/* files/
-          find files/etc/uci-defaults -type f -exec chmod +x {} \; 2>/dev/null || true
-        fi
+      - name: Clone ImmortalWrt source (21.02 branch)
+        run: |
+          git clone -b openwrt-21.02 --single-branch --depth=1 https://github.com/immortalwrt/immortalwrt.git immortalwrt-source
+          cd immortalwrt-source
 
-    - name: Update Feeds
-      run: |
-        cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      - name: Update and install feeds
+        run: |
+          cd immortalwrt-source
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-    - name: Load Default Configuration
-      run: |
-        cd openwrt
-        # 使用简单的 echo 命令代替 heredoc
-        echo "CONFIG_TARGET_ath79=y" > .config
-        echo "CONFIG_TARGET_ath79_generic=y" >> .config
-        echo "CONFIG_TARGET_ath79_generic_DEVICE_tplink_tl-mr3420-v2=y" >> .config
-        echo "CONFIG_TARGET_ROOTFS_PARTSIZE=16" >> .config
-        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-        echo "CONFIG_DEVEL=y" >> .config
-        echo "CONFIG_CCACHE=y" >> .config
-        echo "CONFIG_BUILD_LOG=y" >> .config
+      - name: Run custom configuration script
+        run: |
+          cd immortalwrt-source
+          chmod +x ../scripts/configure.sh
+          ../scripts/configure.sh
 
-    - name: Run Custom Configuration Script
-      run: |
-        cd openwrt
-        if [ -f scripts/configure.sh ]; then
-          chmod +x scripts/configure.sh
-          ./scripts/configure.sh
-        fi
+      - name: Apply custom config files
+        run: |
+          cd immortalwrt-source
+          # 应用预置的网络配置文件
+          cp ../config/network files/etc/config/network
+          cp ../config/wireless files/etc/config/wireless
+          cp ../config/firewall files/etc/config/firewall
 
-    - name: Load Custom Configuration
-      run: |
-        cd openwrt
-        # 添加必要的软件包配置
-        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
-        echo "CONFIG_PACKAGE_firewall=y" >> .config
-        echo "CONFIG_PACKAGE_iptables=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath9k-common=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-cfg80211=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mac80211=y" >> .config
-        echo "CONFIG_PACKAGE_wpad-basic-wolfssl=y" >> .config
-        echo "CONFIG_PACKAGE_bash=y" >> .config
-        echo "CONFIG_PACKAGE_nano=y" >> .config
-        echo "CONFIG_PACKAGE_curl=y" >> .config
-        echo "CONFIG_PACKAGE_wget=y" >> .config
-        echo "CONFIG_PACKAGE_ip-full=y" >> .config
-        # 禁用调试信息以节省空间
-        echo "CONFIG_KERNEL_KALLSYMS=n" >> .config
-        echo "CONFIG_KERNEL_DEBUG_FS=n" >> .config
-        echo "CONFIG_KERNEL_DEBUG_INFO=n" >> .config
+      - name: Download packages
+        run: |
+          cd immortalwrt-source
+          make download -j$(nproc) V=s
 
-    - name: Configure with defconfig
-      run: |
-        cd openwrt
-        make defconfig
-        echo "当前配置摘要:"
-        grep -E "CONFIG_TARGET|CONFIG_64MB|CONFIG_16MB|CONFIG_SQUASHFS" .config || true
+      - name: Build firmware (with ccache)
+        run: |
+          cd immortalwrt-source
+          # 启用ccache和多线程编译以极大提升速度[citation:4][citation:9]
+          make -j$(nproc) V=s CCACHE_DIR=~/.ccache
 
-    - name: Download Dependencies
-      run: |
-        cd openwrt
-        make download -j$(nproc)
-        echo "依赖下载完成"
-
-    - name: Build Firmware
-      run: |
-        cd openwrt
-        # 设置 ccache 缓存
-        export CCACHE_DIR="${{ github.workspace }}/ccache"
-        export CCACHE_MAXSIZE=2G
-        mkdir -p $CCACHE_DIR
-        # 设置环境变量
-        export FORCE_UNSAFE_CONFIGURE=1
-        # 使用多线程编译
-        CORES=$(nproc)
-        echo "使用 $CORES 个核心进行编译"
-        make -j$(($CORES + 1)) V=s || make -j1 V=s
-
-    - name: Upload Firmware Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: immortalwrt-ar9331-firmware
-        path: openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade.bin
-
-    - name: Upload ccache
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: ccache
-        path: ccache
-        retention-days: 7
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-ar9331-firmware
+          path: immortalwrt-source/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*squashfs-sysupgrade*.bin
+          retention-days: 7
