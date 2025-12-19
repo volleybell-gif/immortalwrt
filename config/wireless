@@ -1,0 +1,15 @@
+config wifi-device 'radio0'
+    option type 'mac80211'
+    option channel '11'
+    option hwmode '11g'
+    option path 'platform/ahb/18100000.wmac'
+    option htmode 'HT20'
+    option disabled '0'  # 启用无线[citation:7]
+
+config wifi-iface 'default_radio0'
+    option device 'radio0'
+    option network 'lan'
+    option mode 'ap'
+    option ssid 'ImmortalWrt-AR9331'  # 你的无线网络名称
+    option encryption 'psk2'
+    option key 'your_password_here'   # 请更改为你的无线密码
