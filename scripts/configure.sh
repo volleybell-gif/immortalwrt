@@ -109,4 +109,44 @@ CONFIG_PACKAGE_odhcp6c=y
 CONFIG_PACKAGE_odhcpd-ipv6only=y
 
 # 无线
-CONFIG_PACKAGE_w
+CONFIG_PACKAGE_wpad-openssl=y
+CONFIG_PACKAGE_hostapd-common=y
+CONFIG_PACKAGE_hostapd-utils=y
+
+# USB支持（可选）
+# CONFIG_PACKAGE_kmod-usb-core=y
+# CONFIG_PACKAGE_kmod-usb2=y
+# CONFIG_PACKAGE_kmod-usb-net=y
+# CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+
+# 工具
+CONFIG_PACKAGE_iperf3=y
+CONFIG_PACKAGE_tcpdump=y
+CONFIG_PACKAGE_vim=y
+
+# 文件系统
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_kmod-nls-utf8=y
+
+# 移除不需要的包
+# CONFIG_PACKAGE_luci is not set
+# CONFIG_PACKAGE_luci-ssl is not set
+# CONFIG_PACKAGE_luci-theme-bootstrap is not set
+# CONFIG_PACKAGE_luci-app-firewall is not set
+# CONFIG_PACKAGE_wayland-utils is not set
+# CONFIG_PACKAGE_weston is not set
+# CONFIG_PACKAGE_wpad-basic-wolfssl is not set
+# CONFIG_PACKAGE_ipv6helper is not set
+# CONFIG_PACKAGE_dnsmasq-full is not set
+EOF
+
+# 重新生成配置
+echo "应用配置..."
+make defconfig
+
+# 检查配置
+echo "检查目标架构..."
+grep "CONFIG_TARGET" .config | head -20
+
+echo "配置完成！"
