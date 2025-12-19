@@ -1,67 +1,66 @@
 #!/bin/bash
 
-echo "开始配置AR9331编译环境..."
+echo "开始强制清理并重新配置..."
 
 cd openwrt
 
-# 设置目标
-cat > .config << EOF
+# 完全清理
+make clean
+rm -rf tmp/
+rm -rf staging_dir/target-*/
+rm -rf build_dir/target-*/
+rm -f .config .config.old feeds.conf feeds.conf.bak
+
+# 创建全新的最小配置
+cat > .config << 'EOF'
+# Target
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_generic=y
-CONFIG_TARGET_MULTI_PROFILE=y
-CONFIG_TARGET_PER_DEVICE_ROOTFS=y
+CONFIG_TARGET_ATH79_SINGLE_IMAGE=y
+
+# Filesystem
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_ROOTFS_PARTSIZE=48
-EOF
 
-# 基础包
-cat >> .config << EOF
+# Kernel modules
 CONFIG_PACKAGE_kmod-ath9k=y
-CONFIG_PACKAGE_kmod-gpio-button-hotplug=y
-CONFIG_PACKAGE_kmod-leds-gpio=y
-CONFIG_PACKAGE_kmod-ledtrig-default-on=y
-CONFIG_PACKAGE_kmod-ledtrig-netdev=y
-CONFIG_PACKAGE_kmod-ledtrig-timer=y
+CONFIG_PACKAGE_kmod-ath9k-common=y
 CONFIG_PACKAGE_kmod-usb-core=y
 CONFIG_PACKAGE_kmod-usb2=y
-CONFIG_PACKAGE_ath9k-htc-firmware=y
-EOF
 
-# 网络配置
-cat >> .config << EOF
+# Network
 CONFIG_PACKAGE_dnsmasq=y
 CONFIG_PACKAGE_firewall=y
-CONFIG_PACKAGE_iptables=y
-CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
-CONFIG_PACKAGE_iptables-mod-ipopt=y
-CONFIG_PACKAGE_iw=y
-CONFIG_PACKAGE_iwinfo=y
-CONFIG_PACKAGE_wpad-basic-wolfssl=y
-CONFIG_PACKAGE_hostapd-common=y
 CONFIG_PACKAGE_odhcpd=y
-CONFIG_PACKAGE_odhcpd-ipv6only=y
-CONFIG_PACKAGE_odhcp6c=y
-EOF
 
-# 系统工具
-cat >> .config << EOF
-CONFIG_PACKAGE_busybox=y
-CONFIG_BUSYBOX_CUSTOM=y
-CONFIG_BUSYBOX_CONFIG_FEATURE_EDITING=y
-CONFIG_BUSYBOX_CONFIG_FEATURE_EDITING_HISTORY=64
-CONFIG_BUSYBOX_CONFIG_HUSH=y
-CONFIG_PACKAGE_dropbear=y
-CONFIG_PACKAGE_opkg=y
+# Wireless
+CONFIG_PACKAGE_wpad-basic-wolfssl=y
+CONFIG_PACKAGE_iw=y
+
+# System
 CONFIG_PACKAGE_uci=y
 CONFIG_PACKAGE_ubus=y
-CONFIG_PACKAGE_ubusd=y
-CONFIG_PACKAGE_libubus=y
-CONFIG_PACKAGE_libblobmsg-json=y
-CONFIG_PACKAGE_libjson-c=y
-CONFIG_PACKAGE_libuci=y
-CONFIG_PACKAGE_libuclient=y
-CONFIG_PACKAGE_libnl-tiny=y
-CONFIG_PACKAGE_libpthread=y
+CONFIG_PACKAGE_dropbear=y
+CONFIG_PACKAGE_opkg=y
+
+# Optimizations
+CONFIG_SMALL_FLASH=y
 EOF
+
+# 显式禁用冲突包
+echo "# Explicitly disable conflicting packages" >> .config
+echo "# CONFIG_PACKAGE_dnsmasq-full is not set" >> .config
+echo "# CONFIG_PACKAGE_odhcpd-ipv6only is not set" >> .config
+echo "# CONFIG_PACKAGE_luci is not set" >> .config
+echo "# CONFIG_PACKAGE_uhttpd is not set" >> .config
+echo "# CONFIG_PACKAGE_ip6tables is not set" >> .config
+
+# 显示配置摘要
+echo "=== 配置摘要 ==="
+echo "dnsmasq配置:"
+grep -i dnsmasq .config || echo "未找到dnsmasq配置"
+echo ""
+echo "odhcpd配置:"
+grep -i odhcpd .config || echo "未找到odhcpd配置"
 
 echo "配置完成！"
