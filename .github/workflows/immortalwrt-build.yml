@@ -16,24 +16,26 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          path: main-repo  # 将主仓库克隆到子目录，避免与源码目录混淆
 
       - name: Setup ccache
         uses: actions/cache@v3
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ env.TARGET }}-${{ hashFiles('scripts/configure.sh') }}
+          key: ${{ runner.os }}-ccache-${{ env.TARGET }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ env.TARGET }}-
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          echo "安装编译依赖..."[citation:1][citation:6]
+          echo "安装编译依赖..."
           sudo apt-get install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
           bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
           g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
@@ -47,41 +49,57 @@ jobs:
         run: |
           git clone -b openwrt-21.02 --single-branch --depth=1 https://github.com/immortalwrt/immortalwrt.git immortalwrt-source
           cd immortalwrt-source
+          echo "源码克隆完成"
+
+      - name: Run custom configuration script
+        run: |
+          # 从主仓库复制配置脚本
+          cp -v main-repo/scripts/configure.sh immortalwrt-source/
+          cd immortalwrt-source
+          chmod +x configure.sh
+          ./configure.sh
+
+      - name: Apply custom config files
+        run: |
+          echo "应用自定义配置文件..."
+          
+          # 创建目标目录
+          mkdir -p immortalwrt-source/files/etc/config
+          
+          # 从主仓库复制配置文件到ImmortalWrt的files目录
+          cp -v main-repo/config/network immortalwrt-source/files/etc/config/
+          cp -v main-repo/config/wireless immortalwrt-source/files/etc/config/
+          cp -v main-repo/config/firewall immortalwrt-source/files/etc/config/
+          
+          echo "配置文件已复制到 immortalwrt-source/files/etc/config/"
+          ls -la immortalwrt-source/files/etc/config/
 
       - name: Update and install feeds
         run: |
           cd immortalwrt-source
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: Run custom configuration script
-        run: |
-          cd immortalwrt-source
-          chmod +x ../scripts/configure.sh
-          ../scripts/configure.sh
-
-      - name: Apply custom config files
-        run: |
-          cd immortalwrt-source
-          # 应用预置的网络配置文件
-          cp ../config/network files/etc/config/network
-          cp ../config/wireless files/etc/config/wireless
-          cp ../config/firewall files/etc/config/firewall
+          echo "Feeds更新完成"
 
       - name: Download packages
         run: |
           cd immortalwrt-source
           make download -j$(nproc) V=s
+          echo "源码包下载完成"
 
       - name: Build firmware (with ccache)
         run: |
           cd immortalwrt-source
-          # 启用ccache和多线程编译以极大提升速度[citation:4][citation:9]
-          make -j$(nproc) V=s CCACHE_DIR=~/.ccache
+          # 启用ccache和多线程编译以极大提升速度
+          export CCACHE_DIR=~/.ccache
+          export CCACHE_MAXSIZE=2G
+          make -j$(nproc) V=s CCACHE=1
+          echo "固件构建完成"
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-ar9331-firmware
-          path: immortalwrt-source/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*squashfs-sysupgrade*.bin
+          path: immortalwrt-source/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/openwrt-*.squashfs-sysupgrade.bin
           retention-days: 7
+        if: success()
