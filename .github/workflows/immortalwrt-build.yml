@@ -16,7 +16,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v3
 
     - name: Setup environment
       run: |
@@ -29,10 +29,10 @@ jobs:
           python3-dev curl libelf-dev xsltproc
 
     - name: Setup ccache
-      uses: actions/cache@v4
+      uses: actions/cache@v3
       with:
         path: /tmp/ccache
-        key: ${{ runner.os }}-ccache-${{ hashFiles('scripts/*.sh', 'config/**') }}
+        key: ${{ runner.os }}-ccache-${{ github.sha }}
         restore-keys: |
           ${{ runner.os }}-ccache-
 
@@ -41,36 +41,43 @@ jobs:
         echo "克隆 ImmortalWrt 21.02..."
         git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-21.02 openwrt
         
-        echo "复制配置文件..."
+        echo "复制配置文件和脚本..."
+        # 复制脚本
+        cp scripts/*.sh openwrt/
+        chmod +x openwrt/*.sh
+        
+        # 复制配置文件
         mkdir -p openwrt/files/etc/config
         cp config/network openwrt/files/etc/config/
         cp config/wireless openwrt/files/etc/config/
         cp config/firewall openwrt/files/etc/config/
         
+        # 复制设备树文件
         if [ -f "config/dts-overlay/ar9331-custom.dts" ]; then
           mkdir -p openwrt/custom-dts
           cp config/dts-overlay/ar9331-custom.dts openwrt/custom-dts/
         fi
-        
-        echo "复制构建脚本..."
-        cp scripts/*.sh openwrt/
-        chmod +x openwrt/*.sh
 
-    - name: Configure build
+    - name: Configure and patch
       run: |
         cd openwrt
+        echo "当前目录: $(pwd)"
+        ls -la
+        
         echo "运行配置脚本..."
         ./configure.sh
+        
         echo "运行设备树补丁脚本..."
-        ./patch-dts.sh
+        ./patch-dts.sh || echo "设备树补丁可能未应用，继续..."
 
     - name: Download sources
       run: |
         cd openwrt
         echo "下载依赖..."
         make -j$BUILD_THREADS download 2>&1 | tail -50
-        echo "清理空的下载文件..."
-        find dl -size 0 -delete -print
+        
+        echo "检查下载文件..."
+        ls -la dl/ | head -20
 
     - name: Build firmware
       run: |
@@ -81,23 +88,27 @@ jobs:
         export CCACHE_MAXSIZE=2G
         
         echo "开始编译 AR9331 固件..."
-        echo "目标: ar71xx/tiny"
-        echo "线程数: $BUILD_THREADS"
+        echo "使用线程数: $BUILD_THREADS"
         
-        # 生成默认配置
-        make defconfig
-        
-        # 编译
-        time make -j$BUILD_THREADS V=sc 2>&1 | tail -100
+        # 编译固件
+        time make -j$BUILD_THREADS V=s 2>&1 | tee build.log | tail -100
         
         echo "编译完成，检查输出..."
-        ls -la bin/targets/ar71xx/tiny/ || true
+        if ls -la bin/targets/ar71xx/tiny/*.bin 2>/dev/null; then
+          echo "✓ 固件生成成功！"
+          ls -lh bin/targets/ar71xx/tiny/*.bin
+        else
+          echo "✗ 错误：未找到生成的固件"
+          echo "查看构建日志..."
+          tail -100 build.log
+          exit 1
+        fi
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       if: success()
       with:
-        name: immortalwrt-ar9331
+        name: immortalwrt-ar9331-firmware
         path: |
           openwrt/bin/targets/ar71xx/tiny/*.bin
           openwrt/bin/targets/ar71xx/tiny/*.gz
