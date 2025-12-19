@@ -12,6 +12,11 @@ if [ ! -f feeds.conf.default ]; then
   exit 1
 fi
 
+# 更新feeds
+echo "更新feeds..."
+./scripts/feeds update -a
+./scripts/feeds install -a
+
 # 配置目标
 cat > .config << EOF
 CONFIG_TARGET_ar71xx=y
@@ -30,12 +35,17 @@ CONFIG_TARGET_IMAGES_GZIP=y
 CONFIG_TARGET_ROOTFS_PARTSIZE=48
 
 # 内核模块
+CONFIG_PACKAGE_kmod-ath9k=y
+CONFIG_PACKAGE_kmod-ath9k-common=y
+CONFIG_PACKAGE_kmod-ath=y
 CONFIG_PACKAGE_kmod-gpio-button-hotplug=y
 CONFIG_PACKAGE_kmod-leds-gpio=y
 CONFIG_PACKAGE_kmod-ledtrig-default-on=y
 CONFIG_PACKAGE_kmod-ledtrig-timer=y
 CONFIG_PACKAGE_kmod-usb-core=y
 CONFIG_PACKAGE_kmod-usb2=y
+CONFIG_PACKAGE_kmod-usb-net=y
+CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
 
 # 基础系统
 CONFIG_PACKAGE_base-files=y
@@ -75,15 +85,21 @@ CONFIG_PACKAGE_odhcpd-ipv6only=y
 CONFIG_PACKAGE_ppp=y
 CONFIG_PACKAGE_ppp-mod-pppoe=y
 
+# 无线配置
+CONFIG_PACKAGE_wpad-openssl=y
+CONFIG_PACKAGE_hostapd-common=y
+CONFIG_PACKAGE_hostapd-utils=y
+
 # 工具
 CONFIG_PACKAGE_iperf3=y
 CONFIG_PACKAGE_tcpdump=y
 CONFIG_PACKAGE_vim=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_wget=y
 
 # 精简选项：移除不需要的
 # CONFIG_PACKAGE_luci is not set
 # CONFIG_PACKAGE_wpad-basic-wolfssl is not set
-CONFIG_PACKAGE_wpad-openssl=y
 
 # 内核配置
 CONFIG_KERNEL_BUILD_USER="CustomAR9331"
