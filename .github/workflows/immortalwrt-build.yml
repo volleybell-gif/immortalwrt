@@ -27,7 +27,7 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: recursive
     
@@ -41,7 +41,7 @@ jobs:
           ccache nano time
     
     - name: Setup ccache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: /tmp/ccache
         key: ${{ runner.os }}-ccache-${{ hashFiles('scripts/configure.sh', 'config/**', 'scripts/patch-dts.sh') }}
@@ -140,7 +140,7 @@ jobs:
         echo "编译完成！"
     
     - name: Upload firmware artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: success()
       with:
         name: immortalwrt-ar9331-firmware
