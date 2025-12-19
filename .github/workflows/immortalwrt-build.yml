@@ -50,7 +50,7 @@ jobs:
         echo "Installing build dependencies..."
         echo "========================================"
         sudo apt-get update
-        sudo apt-get install -y build-essential ccache clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libncursesw5-dev libssl-dev python3 python3-setuptools rsync swig unzip zlib1g-dev file wget
+        sudo apt-get install -y build-essential ccache clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libncursesw5-dev libssl-dev python3 python3-setuptools rsync swig unzip zlib1g-dev file wget ncurses-term
         
     - name: Clone ImmortalWrt source
       run: |
@@ -104,9 +104,14 @@ jobs:
           ./scripts/customize.sh
         fi
         
-        make defconfig
+        # 设置终端环境变量，避免交互式终端错误
+        export TERM=dumb
+        export TERMINFO=/usr/share/terminfo
         
-        # 使用多个echo命令代替heredoc，避免YAML解析问题
+        # 创建初始配置
+        touch .config
+        
+        # 应用AR9331特定配置
         echo 'CONFIG_TARGET_ar71xx=y' >> .config
         echo 'CONFIG_TARGET_ar71xx_generic=y' >> .config
         echo 'CONFIG_TARGET_ar71xx_generic_DEVICE_tl-wr841-v11=y' >> .config
@@ -122,7 +127,8 @@ jobs:
         echo 'CONFIG_CCACHE=y' >> .config
         echo 'CONFIG_BUILD_LOG=y' >> .config
         
-        make defconfig
+        # 使用非交互式方式生成最终配置
+        yes "" | make defconfig
         
     - name: Download packages
       run: |
