@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 env:
   IMAGE_NAME: immortalwrt-ar9331
@@ -14,10 +14,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        threads: [4]
-      fail-fast: false
     
     steps:
     - name: Checkout Repository
@@ -38,13 +34,12 @@ jobs:
           gawk \
           gettext \
           git \
-          java-propose-classpath \
           libelf-dev \
           libncurses5-dev \
           libncursesw5-dev \
           libssl-dev \
           python3 \
-          python3-distutils \
+          python3-pip \
           python3-setuptools \
           rsync \
           subversion \
@@ -52,10 +47,18 @@ jobs:
           time \
           xsltproc \
           zlib1g-dev \
-          wget
-    
-    - name: Configure CCache
-      run: |
+          wget \
+          unzip \
+          gperf \
+          bison \
+          flex
+        
+        # 安装 python3-distutils 的替代方案
+        sudo apt-get install -y python3-distutils-extra || true
+        python3 -m pip install --upgrade pip setuptools wheel
+        
+        # 设置 ccache
+        sudo apt-get install -y ccache
         echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
         ccache -M 5G
         ccache -s
@@ -69,49 +72,66 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         
-        # 应用自定义配置
+        # 复制配置文件
+        cp ../$CONFIG_FILE .
+        
+        # 应用自定义配置脚本
         if [ -f ../scripts/configure.sh ]; then
           chmod +x ../scripts/configure.sh
           ../scripts/configure.sh
         fi
         
         # 应用设备树补丁
-        if [ -f ../scripts/patch-dts.sh ]; then
+        if [ -f ../scripts/patch-dts.sh ] && [ -d target/linux/ath79/dts ]; then
           chmod +x ../scripts/patch-dts.sh
-          cd target/linux/ath79/dts
-          ../../../../../scripts/patch-dts.sh
-          cd ../../../../..
+          cp ../scripts/patch-dts.sh .
+          ./patch-dts.sh
         fi
         
-        # 复制默认配置
-        cp ../$CONFIG_FILE .
-        
-        # 应用配置并检查
+        # 应用配置
         make defconfig
-        make -j$(nproc) kernel_oldconfig
+        
+        # 显示最终配置
+        echo "=== Final .config ==="
+        head -50 .config
     
     - name: Build Firmware
       run: |
         cd openwrt
         
-        # 设置编译线程数
-        THREADS=$(( $(nproc) * 2 ))
+        # 使用所有可用的CPU核心进行编译
+        THREADS=$(( $(nproc) + 1 ))
         echo "Using $THREADS threads for compilation"
         
-        # 开始编译
-        make -j$THREADS
+        # 启用详细输出以便调试
+        make -j$THREADS V=s 2>&1 | tee build.log || {
+          echo "Build failed, checking log..."
+          tail -100 build.log
+          exit 1
+        }
         
         # 检查编译结果
+        echo "=== Build Results ==="
+        find bin/targets -name "*.bin" -type f | head -20
+        
+        # 复制生成的固件到容易访问的位置
         if [ -d bin/targets/ath79/generic ]; then
-          echo "Build successful!"
-          ls -la bin/targets/ath79/generic/*.bin
-        else
-          echo "Build failed!"
-          exit 1
+          mkdir -p ../firmware
+          cp bin/targets/ath79/generic/*squashfs-sysupgrade*.bin ../firmware/
+          echo "Firmware files copied to ../firmware/"
+          ls -la ../firmware/
         fi
     
     - name: Upload Firmware
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.IMAGE_NAME }}-firmware
-        path: openwrt/bin/targets/ath79/generic/*squashfs-sysupgrade*.bin
+        path: firmware/*.bin
+        if-no-files-found: error
+    
+    - name: Upload Build Log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log
+        path: openwrt/build.log
