@@ -1,105 +1,149 @@
 name: Build ImmortalWrt for AR9331
 
 on:
-  workflow_dispatch: # 允许手动触发
   push:
     branches: [ main, master ]
-  schedule:
-    # 可选：每周日凌晨自动编译，保持代码最新
-    - cron: '0 0 * * 0'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      clean_build:
+        description: 'Clean build (no cache)'
+        required: false
+        default: 'false'
 
 env:
-  TARGET: ath79
-  SUBTARGET: tiny
-  PROFILE: tplink_tl-wr703n-v1 # 与AR9331 64+16配置兼容的常见型号
+  BUILD_THREADS: 8
+  CCACHE_DIR: /tmp/ccache
+  CCACHE_MAXSIZE: 2G
+  TARGET_BOARD: ar71xx
+  TARGET_SUBTARGET: tiny
+  TARGET_PROFILE: generic
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
     
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          path: main-repo  # 将主仓库克隆到子目录，避免与源码目录混淆
-
-      - name: Setup ccache
-        uses: actions/cache@v3
-        with:
-          path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ env.TARGET }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-${{ env.TARGET }}-
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          echo "安装编译依赖..."
-          sudo apt-get install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-          bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
-          g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
-          libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
-          libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano \
-          ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
-          python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
-          upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
-
-      - name: Clone ImmortalWrt source (21.02 branch)
-        run: |
-          git clone -b openwrt-21.02 --single-branch --depth=1 https://github.com/immortalwrt/immortalwrt.git immortalwrt-source
-          cd immortalwrt-source
-          echo "源码克隆完成"
-
-      - name: Run custom configuration script
-        run: |
-          # 从主仓库复制配置脚本
-          cp -v main-repo/scripts/configure.sh immortalwrt-source/
-          cd immortalwrt-source
-          chmod +x configure.sh
-          ./configure.sh
-
-      - name: Apply custom config files
-        run: |
-          echo "应用自定义配置文件..."
-          
-          # 创建目标目录
-          mkdir -p immortalwrt-source/files/etc/config
-          
-          # 从主仓库复制配置文件到ImmortalWrt的files目录
-          cp -v main-repo/config/network immortalwrt-source/files/etc/config/
-          cp -v main-repo/config/wireless immortalwrt-source/files/etc/config/
-          cp -v main-repo/config/firewall immortalwrt-source/files/etc/config/
-          
-          echo "配置文件已复制到 immortalwrt-source/files/etc/config/"
-          ls -la immortalwrt-source/files/etc/config/
-
-      - name: Update and install feeds
-        run: |
-          cd immortalwrt-source
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          echo "Feeds更新完成"
-
-      - name: Download packages
-        run: |
-          cd immortalwrt-source
-          make download -j$(nproc) V=s
-          echo "源码包下载完成"
-
-      - name: Build firmware (with ccache)
-        run: |
-          cd immortalwrt-source
-          # 启用ccache和多线程编译以极大提升速度
-          export CCACHE_DIR=~/.ccache
-          export CCACHE_MAXSIZE=2G
-          make -j$(nproc) V=s CCACHE=1
-          echo "固件构建完成"
-
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: immortalwrt-ar9331-firmware
-          path: immortalwrt-source/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/openwrt-*.squashfs-sysupgrade.bin
-          retention-days: 7
-        if: success()
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    
+    - name: Setup build environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential clang flex bison g++ gawk gcc-multilib \
+          g++-multilib gettext git libncurses5-dev libssl-dev \
+          python3-distutils rsync unzip zlib1g-dev file wget \
+          ccache nano time
+    
+    - name: Setup ccache
+      uses: actions/cache@v3
+      with:
+        path: /tmp/ccache
+        key: ${{ runner.os }}-ccache-${{ hashFiles('scripts/configure.sh', 'config/**', 'scripts/patch-dts.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-
+    
+    - name: Clone ImmortalWrt source
+      run: |
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-21.02 openwrt
+        cd openwrt
+        
+        # 添加自定义feed（可选）
+        echo 'src-git custom https://github.com/your-custom-feed' >> feeds.conf.default
+        
+        # 更新feeds
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+    
+    - name: Apply custom configuration
+      run: |
+        cd openwrt
+        
+        # 复制自定义配置文件
+        cp -rf ../scripts/configure.sh ./
+        cp -rf ../scripts/patch-dts.sh ./
+        chmod +x ./configure.sh ./patch-dts.sh
+        
+        # 应用配置脚本
+        ./configure.sh
+        
+        # 应用设备树补丁
+        if [ -f "../config/dts-overlay/ar9331-custom.dts" ]; then
+          ./patch-dts.sh
+        fi
+        
+        # 复制网络配置文件
+        mkdir -p files/etc/config
+        cp ../config/network files/etc/config/
+        cp ../config/wireless files/etc/config/
+        cp ../config/firewall files/etc/config/
+        
+        # 确保必要的目录存在
+        mkdir -p files/etc/uci-defaults
+    
+    - name: Build configuration
+      run: |
+        cd openwrt
+        make defconfig
+        
+        # 精简配置：移除不需要的包
+        sed -i \
+          -e 's/CONFIG_PACKAGE_luci=y/# CONFIG_PACKAGE_luci is not set/' \
+          -e 's/CONFIG_PACKAGE_luci-ssl=y/# CONFIG_PACKAGE_luci-ssl is not set/' \
+          -e 's/CONFIG_PACKAGE_wpad-basic-wolfssl=y/# CONFIG_PACKAGE_wpad-basic-wolfssl is not set/' \
+          .config
+        
+        # 启用必要的驱动和工具
+        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
+        echo "CONFIG_PACKAGE_wpad-openssl=y" >> .config
+        echo "CONFIG_PACKAGE_iperf3=y" >> .config
+        echo "CONFIG_PACKAGE_tcpdump=y" >> .config
+        
+        # 启用ccache
+        echo "CONFIG_CCACHE=y" >> .config
+        
+        # 运行旧版配置
+        make oldconfig
+    
+    - name: Build firmware
+      run: |
+        cd openwrt
+        
+        # 设置编译环境变量
+        export FORCE_UNSAFE_CONFIGURE=1
+        export CCACHE_DIR=/tmp/ccache
+        export CCACHE_UMASK=002
+        
+        # 多线程编译
+        echo "开始编译，使用 $BUILD_THREADS 个线程"
+        
+        # 下载所有依赖（可选的预下载步骤）
+        make -j$BUILD_THREADS download
+        
+        # 编译工具链
+        make -j$BUILD_THREADS tools/compile
+        
+        # 编译目标
+        if [ "${{ github.event.inputs.clean_build }}" = "true" ]; then
+          echo "执行清理编译..."
+          make -j$BUILD_THREADS V=s clean
+        fi
+        
+        # 编译固件
+        time make -j$BUILD_THREADS V=s
+        
+        echo "编译完成！"
+    
+    - name: Upload firmware artifact
+      uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: immortalwrt-ar9331-firmware
+        path: |
+          openwrt/bin/targets/ar71xx/tiny/
+        retention-days: 7
