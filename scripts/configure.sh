@@ -2,23 +2,44 @@
 
 set -e
 
-cd "$(dirname "$0")/.."
-
 echo "开始配置AR9331编译..."
 
-# 检查是否在openwrt目录
-if [ ! -f feeds.conf.default ]; then
-  echo "错误：请在openwrt目录中运行此脚本"
-  exit 1
+# 检查当前目录
+if [ -f "feeds.conf.default" ]; then
+    echo "当前在openwrt目录中"
+    OPENWRT_DIR="."
+elif [ -f "openwrt/feeds.conf.default" ]; then
+    echo "当前在仓库根目录中，切换到openwrt目录"
+    cd openwrt
+    OPENWRT_DIR="."
+else
+    echo "错误：找不到openwrt目录"
+    exit 1
 fi
 
-# 更新feeds
 echo "更新feeds..."
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
+# 移除不需要的包，精简固件
+echo "清理不需要的包..."
+./scripts/feeds uninstall luci
+./scripts/feeds uninstall luci-ssl
+./scripts/feeds uninstall luci-app-firewall
+./scripts/feeds uninstall luci-theme-bootstrap
+
+# 安装必要的包
+echo "安装必要的包..."
+./scripts/feeds install -p packages kmod-ath9k
+./scripts/feeds install -p packages wpad-openssl
+./scripts/feeds install -p packages iptables
+./scripts/feeds install -p packages dnsmasq
+./scripts/feeds install -p packages firewall
+./scripts/feeds install -p packages odhcpd-ipv6only
+./scripts/feeds install -p packages odhcp6c
+
 # 配置目标
-cat > .config << EOF
+cat > .config << 'EOF'
 CONFIG_TARGET_ar71xx=y
 CONFIG_TARGET_ar71xx_tiny=y
 CONFIG_TARGET_ar71xx_tiny_DEVICE_generic=y
@@ -34,7 +55,7 @@ CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_IMAGES_GZIP=y
 CONFIG_TARGET_ROOTFS_PARTSIZE=48
 
-# 内核模块
+# 内核模块 - 必要
 CONFIG_PACKAGE_kmod-ath9k=y
 CONFIG_PACKAGE_kmod-ath9k-common=y
 CONFIG_PACKAGE_kmod-ath=y
@@ -46,6 +67,7 @@ CONFIG_PACKAGE_kmod-usb-core=y
 CONFIG_PACKAGE_kmod-usb2=y
 CONFIG_PACKAGE_kmod-usb-net=y
 CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+CONFIG_PACKAGE_kmod-nls-base=y
 
 # 基础系统
 CONFIG_PACKAGE_base-files=y
@@ -97,13 +119,21 @@ CONFIG_PACKAGE_vim=y
 CONFIG_PACKAGE_curl=y
 CONFIG_PACKAGE_wget=y
 
+# 文件系统
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_kmod-nls-utf8=y
+
 # 精简选项：移除不需要的
 # CONFIG_PACKAGE_luci is not set
 # CONFIG_PACKAGE_wpad-basic-wolfssl is not set
+# CONFIG_PACKAGE_wayland-utils is not set
+# CONFIG_PACKAGE_weston is not set
 
 # 内核配置
-CONFIG_KERNEL_BUILD_USER="CustomAR9331"
+CONFIG_KERNEL_BUILD_USER="AR9331-Custom"
 CONFIG_KERNEL_BUILD_DOMAIN="github.com"
+CONFIG_KERNEL_DEBUG_INFO=n
 EOF
 
 echo "配置完成！"
