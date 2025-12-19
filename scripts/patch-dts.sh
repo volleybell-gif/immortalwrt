@@ -1,85 +1,144 @@
 #!/bin/bash
 
-set -e
+echo "应用AR9331设备树补丁..."
 
-echo "开始应用AR9331自定义设备树补丁..."
+# 创建自定义设备树文件
+cat > ar9331_myrouter.dts << 'EOF'
+/dts-v1/;
 
-# 检查当前目录
-CURRENT_DIR=$(pwd)
-echo "当前目录: $CURRENT_DIR"
+#include "ar9331.dtsi"
 
-# 尝试找到目标DTS文件
-if [ -f "target/linux/ar71xx/dts/ar9331.dtsi" ]; then
-    echo "在当前目录找到目标DTS文件"
-    TARGET_DTS="target/linux/ar71xx/dts/ar9331.dtsi"
-elif [ -f "../target/linux/ar71xx/dts/ar9331.dtsi" ]; then
-    echo "在父目录找到目标DTS文件"
-    TARGET_DTS="../target/linux/ar71xx/dts/ar9331.dtsi"
-else
-    echo "错误：找不到目标DTS文件"
-    echo "搜索DTS文件..."
-    find . -name "ar9331.dtsi" 2>/dev/null | head -10
-    echo "尝试寻找ar71xx目录..."
-    find . -type d -name "ar71xx" 2>/dev/null | head -10
-    exit 1
-fi
+/ {
+	model = "My Custom AR9331 Router";
+	compatible = "qca,ar9331";
 
-# 查找自定义DTS文件
-if [ -f "custom-dts/ar9331-custom.dts" ]; then
-    CUSTOM_DTS="custom-dts/ar9331-custom.dts"
-elif [ -f "../config/dts-overlay/ar9331-custom.dts" ]; then
-    CUSTOM_DTS="../config/dts-overlay/ar9331-custom.dts"
-elif [ -f "ar9331-custom.dts" ]; then
-    CUSTOM_DTS="ar9331-custom.dts"
-else
-    echo "警告：找不到自定义DTS文件"
-    echo "使用默认设备树配置..."
-    exit 0
-fi
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x4000000>;  // 64MB
+	};
 
-echo "目标DTS: $TARGET_DTS"
-echo "自定义DTS: $CUSTOM_DTS"
+	chosen {
+		bootargs = "console=ttyATH0,115200";
+	};
 
-# 备份原始文件
-cp "$TARGET_DTS" "${TARGET_DTS}.backup"
-echo "已备份原始文件到: ${TARGET_DTS}.backup"
+	aliases {
+		serial0 = &uart;
+		led-boot = &led_system;
+		led-failsafe = &led_system;
+		led-running = &led_system;
+		led-upgrade = &led_system;
+	};
 
-# 创建合并后的DTS文件
-echo "合并自定义DTS配置..."
+	leds {
+		compatible = "gpio-leds";
 
-# 方法1：使用sed插入内容（更可靠）
-{
-    # 读取原始文件直到最后一个闭合括号前
-    head -n $(($(wc -l < "$TARGET_DTS") - 1)) "$TARGET_DTS"
-    echo ""
-    echo "/* 自定义AR9331设备树配置 */"
-    echo "/* 适用于64MB DDR2, 16MB SPI Flash */"
-    echo "/* 单网口配置为LAN口 */"
-    echo ""
-    cat "$CUSTOM_DTS"
-    echo "};"
-} > "${TARGET_DTS}.tmp"
+		led_system: system {
+			label = "blue:system";
+			gpios = <&gpio 0 GPIO_ACTIVE_LOW>;
+			default-state = "on";
+		};
 
-# 检查新文件是否有效
-if [ -s "${TARGET_DTS}.tmp" ]; then
-    mv "${TARGET_DTS}.tmp" "$TARGET_DTS"
-    echo "设备树补丁应用成功！"
-    
-    # 验证文件
-    echo "验证文件格式..."
-    LINES=$(wc -l < "$TARGET_DTS")
-    echo "新文件大小: $LINES 行"
-    
-    # 检查关键内容
-    if grep -q "compatible.*ar9331" "$TARGET_DTS"; then
-        echo "✓ 找到兼容性声明"
-    fi
-    if grep -q "64MB" "$TARGET_DTS"; then
-        echo "✓ 找到内存配置"
-    fi
-else
-    echo "错误：生成的DTS文件为空"
-    exit 1
-fi
+		lan {
+			label = "green:lan";
+			gpios = <&gpio 13 GPIO_ACTIVE_LOW>;
+		};
+
+		wlan {
+			label = "green:wlan";
+			gpios = <&gpio 17 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "phy0tpt";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <100>;
+
+		reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&gpio 12 GPIO_ACTIVE_LOW>;
+			debounce-interval = <60>;
+		};
+	};
+
+	gpio-export {
+		compatible = "gpio-export";
+
+		gpio_usb_power {
+			gpio-export,name = "usb_power";
+			gpio-export,output = <1>;
+			gpios = <&gpio 8 GPIO_ACTIVE_HIGH>;
+		};
+	};
+};
+
+&spi {
+	status = "okay";
+	num-cs = <1>;
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <25000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x0 0x20000>;
+				read-only;
+			};
+
+			partition@20000 {
+				label = "firmware";
+				reg = <0x20000 0xfd0000>;
+			};
+
+			art: partition@ff0000 {
+				label = "art";
+				reg = <0xff0000 0x10000>;
+				read-only;
+			};
+		};
+	};
+};
+
+&eth0 {
+	status = "okay";
+
+	phy-handle = <&swphy>;
+	phy-mode = "rgmii";
+
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+	};
+};
+
+&eth1 {
+	status = "okay";
+	phy-handle = <&phy0>;
+};
+
+&mdio0 {
+	swphy: ethernet-switch@0 {
+		compatible = "qca,ar9330-switch";
+		reg = <0>;
+	};
+};
+
+&wmac {
+	status = "okay";
+	qca,no-eeprom;
+};
+
+&uart {
+	status = "okay";
+};
+EOF
 
 echo "设备树补丁应用完成！"
