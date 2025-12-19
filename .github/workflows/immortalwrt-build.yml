@@ -27,7 +27,7 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v3
       with:
         submodules: recursive
     
@@ -38,10 +38,11 @@ jobs:
           build-essential clang flex bison g++ gawk gcc-multilib \
           g++-multilib gettext git libncurses5-dev libssl-dev \
           python3-distutils rsync unzip zlib1g-dev file wget \
-          ccache nano time
+          ccache nano time python3 python3-setuptools \
+          python3-dev curl libelf-dev
     
     - name: Setup ccache
-      uses: actions/cache@v4
+      uses: actions/cache@v3
       with:
         path: /tmp/ccache
         key: ${{ runner.os }}-ccache-${{ hashFiles('scripts/configure.sh', 'config/**', 'scripts/patch-dts.sh') }}
@@ -53,18 +54,7 @@ jobs:
         git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-21.02 openwrt
         cd openwrt
         
-        # 添加自定义feed（可选）
-        echo 'src-git custom https://github.com/your-custom-feed' >> feeds.conf.default
-        
-        # 更新feeds
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-    
-    - name: Apply custom configuration
-      run: |
-        cd openwrt
-        
-        # 复制自定义配置文件
+        # 应用自定义配置
         cp -rf ../scripts/configure.sh ./
         cp -rf ../scripts/patch-dts.sh ./
         chmod +x ./configure.sh ./patch-dts.sh
@@ -85,30 +75,24 @@ jobs:
         
         # 确保必要的目录存在
         mkdir -p files/etc/uci-defaults
-    
-    - name: Build configuration
-      run: |
-        cd openwrt
-        make defconfig
         
-        # 精简配置：移除不需要的包
-        sed -i \
-          -e 's/CONFIG_PACKAGE_luci=y/# CONFIG_PACKAGE_luci is not set/' \
-          -e 's/CONFIG_PACKAGE_luci-ssl=y/# CONFIG_PACKAGE_luci-ssl is not set/' \
-          -e 's/CONFIG_PACKAGE_wpad-basic-wolfssl=y/# CONFIG_PACKAGE_wpad-basic-wolfssl is not set/' \
-          .config
+        # 设置默认配置
+        cat > files/etc/uci-defaults/99-custom << 'EOF'
+#!/bin/sh
+
+# 设置LAN口IP
+uci set network.lan.ipaddr='192.168.1.1'
+uci commit network
+
+# 设置无线SSID和密码（如果需要）
+# uci set wireless.@wifi-iface[0].ssid='ImmortalWrt-AR9331'
+# uci set wireless.@wifi-iface[0].key='yourpassword'
+# uci commit wireless
+
+exit 0
+EOF
         
-        # 启用必要的驱动和工具
-        echo "CONFIG_PACKAGE_kmod-ath9k=y" >> .config
-        echo "CONFIG_PACKAGE_wpad-openssl=y" >> .config
-        echo "CONFIG_PACKAGE_iperf3=y" >> .config
-        echo "CONFIG_PACKAGE_tcpdump=y" >> .config
-        
-        # 启用ccache
-        echo "CONFIG_CCACHE=y" >> .config
-        
-        # 运行旧版配置
-        make oldconfig
+        chmod +x files/etc/uci-defaults/99-custom
     
     - name: Build firmware
       run: |
@@ -118,29 +102,60 @@ jobs:
         export FORCE_UNSAFE_CONFIGURE=1
         export CCACHE_DIR=/tmp/ccache
         export CCACHE_UMASK=002
+        export CCACHE_MAXSIZE=2G
         
         # 多线程编译
         echo "开始编译，使用 $BUILD_THREADS 个线程"
         
-        # 下载所有依赖（可选的预下载步骤）
+        # 清理之前的编译（可选）
+        if [ "${{ github.event.inputs.clean_build }}" = "true" ]; then
+          echo "执行清理编译..."
+          make clean
+          rm -rf tmp
+          rm -rf .config
+        fi
+        
+        # 确保.config存在
+        if [ ! -f .config ]; then
+          make defconfig
+        fi
+        
+        # 应用精简配置
+        ./scripts/diffconfig.sh > diffconfig
+        echo "当前配置差异："
+        cat diffconfig
+        
+        # 下载所有依赖
+        echo "下载依赖..."
+        make -j$BUILD_THREADS download
+        
+        # 检查依赖是否完整
+        find dl -size 0 -delete
+        
+        # 重新下载失败的包
         make -j$BUILD_THREADS download
         
         # 编译工具链
+        echo "编译工具链..."
         make -j$BUILD_THREADS tools/compile
         
         # 编译目标
-        if [ "${{ github.event.inputs.clean_build }}" = "true" ]; then
-          echo "执行清理编译..."
-          make -j$BUILD_THREADS V=s clean
-        fi
-        
-        # 编译固件
+        echo "编译固件..."
         time make -j$BUILD_THREADS V=s
         
-        echo "编译完成！"
+        echo "编译完成！检查输出文件..."
+        
+        # 检查生成的固件
+        if ls bin/targets/ar71xx/tiny/*.bin 2>/dev/null; then
+          echo "固件生成成功！"
+          ls -lh bin/targets/ar71xx/tiny/*.bin
+        else
+          echo "错误：未找到生成的固件文件"
+          exit 1
+        fi
     
     - name: Upload firmware artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       if: success()
       with:
         name: immortalwrt-ar9331-firmware
