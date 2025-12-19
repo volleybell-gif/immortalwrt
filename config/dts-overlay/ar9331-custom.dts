@@ -1,12 +1,12 @@
-// AR9331自定义设备树补丁
-// 适用于64MB DDR2，16MB SPI flash，单网口配置
+// AR9331自定义设备树
+// 64MB DDR2, 16MB SPI flash, 单网口
 
 / {
     compatible = "qca,ar9331";
-
+    
     memory@0 {
         device_type = "memory";
-        reg = <0x0 0x4000000>;  // 64MB内存
+        reg = <0x0 0x4000000>;  // 64MB
     };
 
     chosen {
@@ -16,7 +16,7 @@
     leds {
         compatible = "gpio-leds";
 
-        // 系统状态LED（通常连接到GPIO0）
+        // 系统状态LED (GPIO0)
         sys_led: sys {
             label = "ar9331:green:sys";
             gpios = <&gpio 0 GPIO_ACTIVE_LOW>;
@@ -24,7 +24,7 @@
             linux,default-trigger = "heartbeat";
         };
 
-        // 无线状态LED（通常连接到GPIO1）
+        // 无线LED (GPIO1)
         wlan_led: wlan {
             label = "ar9331:green:wlan";
             gpios = <&gpio 1 GPIO_ACTIVE_LOW>;
@@ -39,7 +39,7 @@
         reset {
             label = "reset";
             linux,code = <KEY_RESTART>;
-            gpios = <&gpio 11 GPIO_ACTIVE_LOW>;  // 复位按钮GPIO
+            gpios = <&gpio 11 GPIO_ACTIVE_LOW>;
             debounce-interval = <60>;
         };
     };
@@ -89,6 +89,7 @@
     status = "okay";
     phy-handle = <&phy0>;
     phy-mode = "mii";
+    mtd-mac-address = <&uboot 0x1fc00>;
 
     fixed-link {
         speed = <100>;
@@ -105,4 +106,5 @@
 &wmac {
     status = "okay";
     qca,no-eeprom;
+    mtd-cal-data = <&art 0x1000>;
 };
